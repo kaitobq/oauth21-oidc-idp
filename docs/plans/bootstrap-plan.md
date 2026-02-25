@@ -16,6 +16,7 @@
 - 2026-02-25: Phase 2 進行中（private_key_jwt クライアント鍵ローテーションAPI + harness 追加）
 - 2026-02-25: Phase 2 進行中（token endpoint error contract harness 追加）
 - 2026-02-25: Phase 2 進行中（private_key_jwt assertion replay protection 追加）
+- 2026-02-25: Phase 2 進行中（authorize/token/admin API の監査ログ追加）
 
 ## Implementation Plan
 

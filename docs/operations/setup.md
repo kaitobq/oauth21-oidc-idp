@@ -73,6 +73,7 @@
 - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true` のとき、`/oauth2/admin/rotate-signing-key` が有効化される
 - 署名鍵ローテーション後、JWKS の active `kid` が更新される
 - ローテーション直後は旧 active `kid` が grace window 中に保持される
+- 認可/トークン/管理API操作で `kind=audit` の JSONログが標準出力に出る
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール

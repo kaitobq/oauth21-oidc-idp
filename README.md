@@ -128,6 +128,11 @@ BASE_URL=http://localhost:8080 OIDC_SIGNING_KEY_ROTATION_TOKEN=dev-signing-key-r
 
 `make bootstrap` は `private_key_jwt` 用の開発鍵ペアをローカルに自動生成します。
 
+### Audit Log
+
+`/oauth2/authorize`・`/oauth2/token`・管理API（鍵ローテーション）は JSON Lines の監査ログを標準出力へ出力します。
+例: `{"kind":"audit","event":"oidc.token","result":"success","grant_type":"authorization_code","client_id":"...","timestamp":"..."}`
+
 ## Development
 
 ```bash
