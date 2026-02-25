@@ -38,17 +38,6 @@ const (
 	refreshTokenTTL                 = 30 * 24 * time.Hour
 )
 
-const defaultPrivateJWTClientPublicKeyPEM = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtKjQruvsBR6Clt73Vs/J
-rvHm2O7QP8/bpM+G+VDqpAte/KYcw+bzA+wzm/751jdUocV+Ze4v9ywaPHTA9kZ4
-pp4fBjNXc9rlKGZvH0SUhzSYBeKk1Yjgnn2mWbNs8JyvGWdC65iuEs7uGnHStjVP
-7Zd5YdyHZueVk7WlsG0IRxsGxAlC2T0R8HpXKz8B/hS0dyM9UtALlUq24azgt44X
-ZE+EGUxxrkW0E/qjJSvRLkEpbANjxodBiqkqz7eRuhiFFw+cu4bPP7jHD/i4HIE0
-Cod0rUl6BTKVTmc2ybbHicjsLqwA/zG8jBP3h9lkraSgArmbiyjXtLeKVrBFgOFu
-TwIDAQAB
------END PUBLIC KEY-----
-`
-
 // OAuthError maps internal validation failures to OAuth2-compatible responses.
 type OAuthError struct {
 	Code        string
@@ -241,13 +230,6 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 	); err != nil {
 		return nil, fmt.Errorf("register default confidential client: %w", err)
 	}
-	if err := provider.RegisterPrivateJWTClient(
-		DefaultPrivateJWTClientID,
-		DefaultPrivateJWTRedirect,
-		defaultPrivateJWTClientPublicKeyPEM,
-	); err != nil {
-		return nil, fmt.Errorf("register default private_key_jwt client: %w", err)
-	}
 
 	return provider, nil
 }
@@ -283,16 +265,40 @@ func (p *Provider) Discovery() discoveryDocument {
 			"email",
 			"offline_access",
 		},
-		TokenEndpointAuthMethodsSupported: []string{
-			TokenEndpointAuthMethodNone,
-			TokenEndpointAuthMethodBasic,
-			TokenEndpointAuthMethodPrivate,
-		},
+		TokenEndpointAuthMethodsSupported: p.supportedTokenEndpointAuthMethods(),
 	}
 }
 
 func (p *Provider) JWKS() jwks {
 	return p.jwks
+}
+
+func (p *Provider) supportedTokenEndpointAuthMethods() []string {
+	supported := map[string]struct{}{
+		TokenEndpointAuthMethodNone: {},
+	}
+
+	p.mu.Lock()
+	for _, c := range p.clients {
+		method := strings.TrimSpace(c.TokenEndpointAuthMethod)
+		if method == "" {
+			method = TokenEndpointAuthMethodNone
+		}
+		supported[method] = struct{}{}
+	}
+	p.mu.Unlock()
+
+	ordered := make([]string, 0, 3)
+	for _, method := range []string{
+		TokenEndpointAuthMethodNone,
+		TokenEndpointAuthMethodBasic,
+		TokenEndpointAuthMethodPrivate,
+	} {
+		if _, ok := supported[method]; ok {
+			ordered = append(ordered, method)
+		}
+	}
+	return ordered
 }
 
 func (p *Provider) RegisterConfidentialClient(clientID, clientSecret, redirectURI string) error {

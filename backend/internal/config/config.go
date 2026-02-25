@@ -7,15 +7,20 @@ import (
 )
 
 type Config struct {
-	Host                  string
-	Port                  string
-	Issuer                string
-	EnableOrganizationAPI bool
-	DevClientID           string
-	DevClientRedirectURI  string
-	ConfidentialClientID  string
-	ConfidentialSecret    string
-	ConfidentialRedirect  string
+	Host                    string
+	Port                    string
+	Issuer                  string
+	EnableOrganizationAPI   bool
+	DevClientID             string
+	DevClientRedirectURI    string
+	ConfidentialClientID    string
+	ConfidentialSecret      string
+	ConfidentialRedirect    string
+	EnablePrivateJWT        bool
+	PrivateJWTClientID      string
+	PrivateJWTRedirectURI   string
+	PrivateJWTPublicKeyPEM  string
+	PrivateJWTPublicKeyPath string
 
 	DBHost     string
 	DBPort     string
@@ -26,15 +31,20 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		Host:                  getEnv("HOST", "0.0.0.0"),
-		Port:                  getEnv("PORT", "8080"),
-		Issuer:                getEnv("ISSUER", "http://localhost:8080"),
-		EnableOrganizationAPI: getEnvBool("ENABLE_ORGANIZATION_API", false),
-		DevClientID:           getEnv("OIDC_DEV_CLIENT_ID", "local-dev-client"),
-		DevClientRedirectURI:  getEnv("OIDC_DEV_REDIRECT_URI", "http://localhost:3000/callback"),
-		ConfidentialClientID:  getEnv("OIDC_CONFIDENTIAL_CLIENT_ID", "local-confidential-client"),
-		ConfidentialSecret:    getEnv("OIDC_CONFIDENTIAL_CLIENT_SECRET", "local-confidential-secret"),
-		ConfidentialRedirect:  getEnv("OIDC_CONFIDENTIAL_REDIRECT_URI", "http://localhost:3000/callback"),
+		Host:                    getEnv("HOST", "0.0.0.0"),
+		Port:                    getEnv("PORT", "8080"),
+		Issuer:                  getEnv("ISSUER", "http://localhost:8080"),
+		EnableOrganizationAPI:   getEnvBool("ENABLE_ORGANIZATION_API", false),
+		DevClientID:             getEnv("OIDC_DEV_CLIENT_ID", "local-dev-client"),
+		DevClientRedirectURI:    getEnv("OIDC_DEV_REDIRECT_URI", "http://localhost:3000/callback"),
+		ConfidentialClientID:    getEnv("OIDC_CONFIDENTIAL_CLIENT_ID", "local-confidential-client"),
+		ConfidentialSecret:      getEnv("OIDC_CONFIDENTIAL_CLIENT_SECRET", "local-confidential-secret"),
+		ConfidentialRedirect:    getEnv("OIDC_CONFIDENTIAL_REDIRECT_URI", "http://localhost:3000/callback"),
+		EnablePrivateJWT:        getEnvBool("OIDC_PRIVATE_JWT_ENABLED", true),
+		PrivateJWTClientID:      getEnv("OIDC_PRIVATE_JWT_CLIENT_ID", "local-private-jwt-client"),
+		PrivateJWTRedirectURI:   getEnv("OIDC_PRIVATE_JWT_REDIRECT_URI", "http://localhost:3000/callback"),
+		PrivateJWTPublicKeyPEM:  getEnv("OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM", ""),
+		PrivateJWTPublicKeyPath: getEnv("OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH", "config/keys/dev/private_jwt_client_public.pem"),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),

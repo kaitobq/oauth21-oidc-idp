@@ -101,7 +101,11 @@ BASE_URL=http://localhost:8080 make harness-private-key-jwt
 - `OIDC_CONFIDENTIAL_CLIENT_ID`（default: `local-confidential-client`）
 - `OIDC_CONFIDENTIAL_CLIENT_SECRET`（default: `local-confidential-secret`）
 - `OIDC_CONFIDENTIAL_REDIRECT_URI`（default: `http://localhost:3000/callback`）
-- private_key_jwt client: `local-private-jwt-client`（redirect: `http://localhost:3000/callback`）
+- `OIDC_PRIVATE_JWT_ENABLED`（default: `true`）
+- `OIDC_PRIVATE_JWT_CLIENT_ID`（default: `local-private-jwt-client`）
+- `OIDC_PRIVATE_JWT_REDIRECT_URI`（default: `http://localhost:3000/callback`）
+- `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/dev/private_jwt_client_public.pem`）
+- `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM`（任意。設定時は `*_PATH` より優先）
 
 ## Development
 

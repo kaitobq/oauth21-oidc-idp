@@ -11,6 +11,7 @@
 - 2026-02-25: Phase 2 進行中（id_token claim: sid 追加）
 - 2026-02-25: Phase 2 進行中（token endpoint client auth: client_secret_basic 追加）
 - 2026-02-25: Phase 2 進行中（token endpoint client auth: private_key_jwt 追加）
+- 2026-02-25: Phase 2 進行中（private_key_jwt 鍵管理を設定駆動へ移行）
 
 ## Implementation Plan
 

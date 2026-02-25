@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	app "github.com/kaitobq/oauth21-oidc-idp/backend/internal/application/organization"
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/config"
@@ -40,6 +42,23 @@ func NewContainer() (*Container, error) {
 			cfg.ConfidentialRedirect,
 		); err != nil {
 			return nil, fmt.Errorf("register confidential oidc client: %w", err)
+		}
+	}
+	if cfg.EnablePrivateJWT {
+		publicKeyPEM := strings.TrimSpace(cfg.PrivateJWTPublicKeyPEM)
+		if publicKeyPEM == "" {
+			rawPublicKey, err := os.ReadFile(cfg.PrivateJWTPublicKeyPath)
+			if err != nil {
+				return nil, fmt.Errorf("read private_key_jwt public key file: %w", err)
+			}
+			publicKeyPEM = strings.TrimSpace(string(rawPublicKey))
+		}
+		if err := provider.RegisterPrivateJWTClient(
+			cfg.PrivateJWTClientID,
+			cfg.PrivateJWTRedirectURI,
+			publicKeyPEM,
+		); err != nil {
+			return nil, fmt.Errorf("register private_key_jwt oidc client: %w", err)
 		}
 	}
 	oidc := oidcHandler.NewHandler(provider)

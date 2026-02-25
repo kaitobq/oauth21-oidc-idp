@@ -97,8 +97,20 @@ func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	if !contains(d.TokenEndpointAuthMethodsSupported, "client_secret_basic") {
 		t.Fatalf("token_endpoint_auth_methods_supported must include client_secret_basic")
 	}
+	if contains(d.TokenEndpointAuthMethodsSupported, "private_key_jwt") {
+		t.Fatalf("token_endpoint_auth_methods_supported must not include private_key_jwt without client registration")
+	}
+
+	if err := provider.RegisterPrivateJWTClient(
+		DefaultPrivateJWTClientID,
+		DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+	d = provider.Discovery()
 	if !contains(d.TokenEndpointAuthMethodsSupported, "private_key_jwt") {
-		t.Fatalf("token_endpoint_auth_methods_supported must include private_key_jwt")
+		t.Fatalf("token_endpoint_auth_methods_supported must include private_key_jwt after client registration")
 	}
 
 	ks := provider.JWKS()
@@ -259,6 +271,14 @@ func TestAuthenticateTokenClient(t *testing.T) {
 		ClientSecret: DefaultConfidentialClientSecret,
 	}); err != nil {
 		t.Fatalf("confidential client authentication must succeed: %v", err)
+	}
+
+	if err := provider.RegisterPrivateJWTClient(
+		DefaultPrivateJWTClientID,
+		DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
 
 	validAssertion := signClientAssertion(
@@ -656,4 +676,18 @@ func parseRSAPrivateKey(t *testing.T, privateKeyPEM string) *rsa.PrivateKey {
 		t.Fatalf("parse rsa private key error: %v", err)
 	}
 	return privateKey
+}
+
+func mustPublicKeyPEMFromPrivateKey(t *testing.T, privateKeyPEM string) string {
+	t.Helper()
+
+	privateKey := parseRSAPrivateKey(t, privateKeyPEM)
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal rsa public key error: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyDER,
+	}))
 }
