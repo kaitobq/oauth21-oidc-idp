@@ -127,6 +127,9 @@ func TestAuthorizeAndExchangeAuthorizationCodeSuccess(t *testing.T) {
 	if claims["nonce"] != testNonce {
 		t.Fatalf("id_token nonce mismatch: %v", claims["nonce"])
 	}
+	if claims["azp"] != testClientID {
+		t.Fatalf("id_token azp mismatch: %v", claims["azp"])
+	}
 	if _, ok := claims["auth_time"].(float64); !ok {
 		t.Fatalf("id_token must include numeric auth_time")
 	}
@@ -267,6 +270,9 @@ func TestRefreshTokenRotation(t *testing.T) {
 	if firstClaims["nonce"] != testNonce {
 		t.Fatalf("first id_token nonce mismatch: %v", firstClaims["nonce"])
 	}
+	if firstClaims["azp"] != testClientID {
+		t.Fatalf("first id_token azp mismatch: %v", firstClaims["azp"])
+	}
 	authTime, ok := firstClaims["auth_time"].(float64)
 	if !ok {
 		t.Fatalf("first id_token must include numeric auth_time")
@@ -302,6 +308,9 @@ func TestRefreshTokenRotation(t *testing.T) {
 	secondClaims := parseJWTClaims(t, secondTokenResp.IDToken)
 	if _, ok := secondClaims["nonce"]; ok {
 		t.Fatalf("refresh id_token must not include nonce")
+	}
+	if secondClaims["azp"] != testClientID {
+		t.Fatalf("refresh id_token azp mismatch: %v", secondClaims["azp"])
 	}
 	if secondClaims["auth_time"] != authTime {
 		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", secondClaims["auth_time"], authTime)

@@ -503,6 +503,7 @@ func (p *Provider) signIDToken(subject, audience, nonce, acr string, amr []strin
 		"iss": p.issuer,
 		"sub": subject,
 		"aud": audience,
+		"azp": audience,
 		"iat": now.Unix(),
 		"exp": now.Add(time.Hour).Unix(),
 	}

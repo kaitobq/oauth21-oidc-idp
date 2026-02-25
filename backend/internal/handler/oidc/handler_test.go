@@ -149,6 +149,9 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	if idTokenClaims["nonce"] != testNonce {
 		t.Fatalf("id_token nonce mismatch: %v", idTokenClaims["nonce"])
 	}
+	if idTokenClaims["azp"] != testClientID {
+		t.Fatalf("id_token azp mismatch: %v", idTokenClaims["azp"])
+	}
 	authTime, ok := idTokenClaims["auth_time"].(float64)
 	if !ok {
 		t.Fatalf("id_token must include numeric auth_time")
@@ -218,6 +221,9 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	refreshIDTokenClaims := parseJWTClaims(t, refreshIDToken)
 	if _, ok := refreshIDTokenClaims["nonce"]; ok {
 		t.Fatalf("refresh id_token must not include nonce")
+	}
+	if refreshIDTokenClaims["azp"] != testClientID {
+		t.Fatalf("refresh id_token azp mismatch: %v", refreshIDTokenClaims["azp"])
 	}
 	if refreshIDTokenClaims["auth_time"] != authTime {
 		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", refreshIDTokenClaims["auth_time"], authTime)
