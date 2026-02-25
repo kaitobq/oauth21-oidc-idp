@@ -20,6 +20,8 @@ import (
 const (
 	DefaultDevClientID       = "local-dev-client"
 	DefaultDevClientRedirect = "http://localhost:3000/callback"
+	defaultACRValue          = "urn:example:loa:1"
+	defaultAMRMethod         = "pwd"
 	authCodeTTL              = 5 * time.Minute
 	accessTokenTTLSeconds    = int64(3600)
 	refreshTokenTTL          = 30 * 24 * time.Hour
@@ -71,6 +73,8 @@ type authorizationCode struct {
 	Scope           string
 	State           string
 	Nonce           string
+	ACR             string
+	AMR             []string
 	AuthenticatedAt time.Time
 	CodeChallenge   string
 	Subject         string
@@ -83,6 +87,8 @@ type refreshTokenGrant struct {
 	ClientID        string
 	Subject         string
 	Scope           string
+	ACR             string
+	AMR             []string
 	AuthenticatedAt time.Time
 	ExpiresAt       time.Time
 	Used            bool
@@ -109,6 +115,7 @@ type discoveryDocument struct {
 	ResponseTypesSupported            []string `json:"response_types_supported"`
 	GrantTypesSupported               []string `json:"grant_types_supported"`
 	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported"`
+	ACRValuesSupported                []string `json:"acr_values_supported,omitempty"`
 	SubjectTypesSupported             []string `json:"subject_types_supported"`
 	IDTokenSigningAlgValuesSupported  []string `json:"id_token_signing_alg_values_supported"`
 	ScopesSupported                   []string `json:"scopes_supported"`
@@ -195,6 +202,9 @@ func (p *Provider) Discovery() discoveryDocument {
 		CodeChallengeMethodsSupported: []string{
 			"S256",
 		},
+		ACRValuesSupported: []string{
+			defaultACRValue,
+		},
 		SubjectTypesSupported: []string{
 			"public",
 		},
@@ -217,7 +227,7 @@ func (p *Provider) JWKS() jwks {
 	return p.jwks
 }
 
-func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string) (string, error) {
+func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, nonce, acrValues, codeChallenge, codeChallengeMethod string) (string, error) {
 	responseType = strings.TrimSpace(responseType)
 	clientID = strings.TrimSpace(clientID)
 	redirectURI = strings.TrimSpace(redirectURI)
@@ -225,6 +235,7 @@ func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, 
 	codeChallengeMethod = strings.TrimSpace(codeChallengeMethod)
 	scope = strings.TrimSpace(scope)
 	nonce = strings.TrimSpace(nonce)
+	acrValues = strings.TrimSpace(acrValues)
 
 	if responseType != "code" {
 		return "", &OAuthError{Code: "unsupported_response_type", Description: "response_type must be code", Status: 400}
@@ -240,6 +251,10 @@ func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, 
 	}
 	if codeChallengeMethod != "S256" {
 		return "", &OAuthError{Code: "invalid_request", Description: "code_challenge_method must be S256", Status: 400}
+	}
+	acr, err := resolveACR(acrValues)
+	if err != nil {
+		return "", err
 	}
 
 	p.mu.Lock()
@@ -269,6 +284,8 @@ func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, 
 		Scope:           scope,
 		State:           state,
 		Nonce:           nonce,
+		ACR:             acr,
+		AMR:             []string{defaultAMRMethod},
 		AuthenticatedAt: authenticatedAt,
 		CodeChallenge:   codeChallenge,
 		Subject:         "user-0001",
@@ -337,6 +354,8 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 	subject := entry.Subject
 	scope := entry.Scope
 	nonce := entry.Nonce
+	acr := entry.ACR
+	amr := append([]string(nil), entry.AMR...)
 	authenticatedAt := entry.AuthenticatedAt
 	p.mu.Unlock()
 
@@ -363,6 +382,8 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 			ClientID:        clientID,
 			Subject:         subject,
 			Scope:           scope,
+			ACR:             acr,
+			AMR:             append([]string(nil), amr...),
 			AuthenticatedAt: authenticatedAt,
 			ExpiresAt:       time.Now().UTC().Add(refreshTokenTTL),
 		}
@@ -371,7 +392,7 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 	}
 
 	if hasScope(scope, "openid") {
-		idToken, err := p.signIDToken(subject, clientID, nonce, authenticatedAt, accessToken)
+		idToken, err := p.signIDToken(subject, clientID, nonce, acr, amr, authenticatedAt, accessToken)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -425,6 +446,8 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 
 	entry.Used = true
 	subject := entry.Subject
+	acr := entry.ACR
+	amr := append([]string(nil), entry.AMR...)
 	authenticatedAt := entry.AuthenticatedAt
 	p.mu.Unlock()
 
@@ -443,6 +466,8 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 		ClientID:        clientID,
 		Subject:         subject,
 		Scope:           issuedScope,
+		ACR:             acr,
+		AMR:             append([]string(nil), amr...),
 		AuthenticatedAt: authenticatedAt,
 		ExpiresAt:       time.Now().UTC().Add(refreshTokenTTL),
 	}
@@ -457,7 +482,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 	}
 
 	if hasScope(issuedScope, "openid") {
-		idToken, err := p.signIDToken(subject, clientID, "", authenticatedAt, accessToken)
+		idToken, err := p.signIDToken(subject, clientID, "", acr, amr, authenticatedAt, accessToken)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -467,7 +492,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 	return resp, nil
 }
 
-func (p *Provider) signIDToken(subject, audience, nonce string, authenticatedAt time.Time, accessToken string) (string, error) {
+func (p *Provider) signIDToken(subject, audience, nonce, acr string, amr []string, authenticatedAt time.Time, accessToken string) (string, error) {
 	now := time.Now().UTC()
 	header := map[string]string{
 		"alg": "RS256",
@@ -486,6 +511,12 @@ func (p *Provider) signIDToken(subject, audience, nonce string, authenticatedAt 
 	}
 	if nonce != "" {
 		claims["nonce"] = nonce
+	}
+	if acr != "" {
+		claims["acr"] = acr
+	}
+	if len(amr) > 0 {
+		claims["amr"] = append([]string(nil), amr...)
 	}
 	if accessToken != "" {
 		claims["at_hash"] = accessTokenHash(accessToken)
@@ -547,4 +578,16 @@ func isScopeSubset(requestedScope, originalScope string) bool {
 		}
 	}
 	return true
+}
+
+func resolveACR(acrValues string) (string, error) {
+	if acrValues == "" {
+		return defaultACRValue, nil
+	}
+	for _, acr := range strings.Fields(acrValues) {
+		if acr == defaultACRValue {
+			return acr, nil
+		}
+	}
+	return "", &OAuthError{Code: "invalid_request", Description: "acr_values includes unsupported value", Status: 400}
 }

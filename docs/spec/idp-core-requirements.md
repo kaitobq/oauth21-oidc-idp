@@ -36,6 +36,7 @@ OAuth 2.1 / OIDC の基本要件を満たす IDP を実装し、相互運用性�
 4. `nonce` が認可リクエストで与えられた場合、ID Token に `nonce` を含める。
 5. ID Token に `auth_time` を含める。
 6. ID Token と同時に Access Token を返す場合、ID Token に `at_hash` を含める。
+7. ID Token に `acr` / `amr` を含める。
 
 ### 4. Security & Operations
 1. 署名鍵ローテーション手順を定義する。

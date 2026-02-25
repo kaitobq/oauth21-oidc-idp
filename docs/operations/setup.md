@@ -38,6 +38,7 @@
 - `authorize` の `nonce` が `id_token` に反映される
 - `id_token` が `auth_time` を含む
 - `id_token` が `at_hash` を含み、返却された `access_token` と整合する
+- `id_token` が `acr` / `amr` を含む
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール

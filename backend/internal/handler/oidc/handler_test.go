@@ -14,11 +14,13 @@ import (
 )
 
 const (
-	testIssuer       = "http://localhost:8080"
-	testClientID     = "test-client"
-	testRedirectURI  = "http://localhost:3000/callback"
-	testCodeVerifier = "this-is-a-long-enough-code-verifier-for-handler-tests-123456789"
-	testNonce        = "nonce-handler-test-123"
+	testIssuer           = "http://localhost:8080"
+	testClientID         = "test-client"
+	testRedirectURI      = "http://localhost:3000/callback"
+	testCodeVerifier     = "this-is-a-long-enough-code-verifier-for-handler-tests-123456789"
+	testNonce            = "nonce-handler-test-123"
+	coreDefaultACRValue  = "urn:example:loa:1"
+	coreDefaultAMRMethod = "pwd"
 )
 
 func TestDiscoveryEndpoint(t *testing.T) {
@@ -58,6 +60,13 @@ func TestDiscoveryEndpoint(t *testing.T) {
 	if !containsValue(grantTypes, "refresh_token") {
 		t.Fatalf("grant_types_supported must include refresh_token")
 	}
+	acrValues, ok := doc["acr_values_supported"].([]any)
+	if !ok {
+		t.Fatalf("acr_values_supported must be array")
+	}
+	if !containsValue(acrValues, coreDefaultACRValue) {
+		t.Fatalf("acr_values_supported must include %s", coreDefaultACRValue)
+	}
 }
 
 func TestAuthorizeAndTokenFlow(t *testing.T) {
@@ -87,6 +96,7 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 			"&scope="+url.QueryEscape("openid profile offline_access")+
 			"&state="+url.QueryEscape("handler-state")+
 			"&nonce="+url.QueryEscape(testNonce)+
+			"&acr_values="+url.QueryEscape(coreDefaultACRValue)+
 			"&code_challenge="+url.QueryEscape(codeChallenge)+
 			"&code_challenge_method=S256",
 		nil,
@@ -142,6 +152,12 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	authTime, ok := idTokenClaims["auth_time"].(float64)
 	if !ok {
 		t.Fatalf("id_token must include numeric auth_time")
+	}
+	if idTokenClaims["acr"] != coreDefaultACRValue {
+		t.Fatalf("id_token acr mismatch: %v", idTokenClaims["acr"])
+	}
+	if !claimHasStringValue(t, idTokenClaims, "amr", coreDefaultAMRMethod) {
+		t.Fatalf("id_token amr must include %s", coreDefaultAMRMethod)
 	}
 	if idTokenClaims["at_hash"] != accessTokenHash(accessToken) {
 		t.Fatalf("id_token at_hash mismatch: %v", idTokenClaims["at_hash"])
@@ -206,6 +222,12 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	if refreshIDTokenClaims["auth_time"] != authTime {
 		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", refreshIDTokenClaims["auth_time"], authTime)
 	}
+	if refreshIDTokenClaims["acr"] != coreDefaultACRValue {
+		t.Fatalf("refresh id_token acr mismatch: %v", refreshIDTokenClaims["acr"])
+	}
+	if !claimHasStringValue(t, refreshIDTokenClaims, "amr", coreDefaultAMRMethod) {
+		t.Fatalf("refresh id_token amr must include %s", coreDefaultAMRMethod)
+	}
 	if refreshIDTokenClaims["at_hash"] != accessTokenHash(refreshAccessToken) {
 		t.Fatalf("refresh id_token at_hash mismatch: %v", refreshIDTokenClaims["at_hash"])
 	}
@@ -267,6 +289,21 @@ func accessTokenHash(accessToken string) string {
 }
 
 func containsValue(values []any, target string) bool {
+	for _, v := range values {
+		if s, ok := v.(string); ok && s == target {
+			return true
+		}
+	}
+	return false
+}
+
+func claimHasStringValue(t *testing.T, claims map[string]any, claimName, target string) bool {
+	t.Helper()
+
+	values, ok := claims[claimName].([]any)
+	if !ok {
+		return false
+	}
 	for _, v := range values {
 		if s, ok := v.(string); ok && s == target {
 			return true

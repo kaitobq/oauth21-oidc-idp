@@ -7,7 +7,7 @@ IDP 実装に対して継続的に仕様適合を確認するための検証資�
 - `../scripts/harness_smoke.sh`: discovery/JWKS の最小自動検証
 - `../scripts/harness_auth_code_pkce.sh`: Auth Code + PKCE の最小フロー検証
 - `../scripts/harness_refresh_rotation.sh`: refresh token rotation の最小フロー検証
-- `../scripts/harness_id_token_claims.sh`: id_token claim（nonce/auth_time/at_hash）の検証
+- `../scripts/harness_id_token_claims.sh`: id_token claim（nonce/auth_time/at_hash/acr/amr）の検証
 
 ## Run
 ```bash

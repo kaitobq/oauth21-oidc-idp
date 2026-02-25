@@ -45,6 +45,9 @@ func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	if !contains(d.CodeChallengeMethodsSupported, "S256") {
 		t.Fatalf("code_challenge_methods_supported must include S256")
 	}
+	if !contains(d.ACRValuesSupported, defaultACRValue) {
+		t.Fatalf("acr_values_supported must include %s", defaultACRValue)
+	}
 	if !contains(d.ScopesSupported, "openid") {
 		t.Fatalf("scopes_supported must include openid")
 	}
@@ -79,6 +82,7 @@ func TestAuthorizeAndExchangeAuthorizationCodeSuccess(t *testing.T) {
 		"openid profile",
 		"state-1",
 		testNonce,
+		defaultACRValue,
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -126,6 +130,12 @@ func TestAuthorizeAndExchangeAuthorizationCodeSuccess(t *testing.T) {
 	if _, ok := claims["auth_time"].(float64); !ok {
 		t.Fatalf("id_token must include numeric auth_time")
 	}
+	if claims["acr"] != defaultACRValue {
+		t.Fatalf("id_token acr mismatch: %v", claims["acr"])
+	}
+	if !claimHasStringValue(t, claims, "amr", defaultAMRMethod) {
+		t.Fatalf("id_token amr must include %s", defaultAMRMethod)
+	}
 	if claims["at_hash"] != accessTokenHash(tokenResp.AccessToken) {
 		t.Fatalf("id_token at_hash mismatch: %v", claims["at_hash"])
 	}
@@ -145,6 +155,7 @@ func TestExchangeAuthorizationCodeRejectReuse(t *testing.T) {
 		testRedirectURI,
 		"openid",
 		"state-reuse",
+		"",
 		"",
 		pkceS256(testCodeVerifier),
 		"S256",
@@ -193,6 +204,7 @@ func TestExchangeAuthorizationCodeRejectVerifierMismatch(t *testing.T) {
 		"openid",
 		"state-mismatch",
 		"",
+		"",
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -229,6 +241,7 @@ func TestRefreshTokenRotation(t *testing.T) {
 		"openid offline_access",
 		"state-refresh",
 		testNonce,
+		defaultACRValue,
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -258,6 +271,12 @@ func TestRefreshTokenRotation(t *testing.T) {
 	if !ok {
 		t.Fatalf("first id_token must include numeric auth_time")
 	}
+	if firstClaims["acr"] != defaultACRValue {
+		t.Fatalf("first id_token acr mismatch: %v", firstClaims["acr"])
+	}
+	if !claimHasStringValue(t, firstClaims, "amr", defaultAMRMethod) {
+		t.Fatalf("first id_token amr must include %s", defaultAMRMethod)
+	}
 	if firstClaims["at_hash"] != accessTokenHash(firstTokenResp.AccessToken) {
 		t.Fatalf("first id_token at_hash mismatch: %v", firstClaims["at_hash"])
 	}
@@ -286,6 +305,12 @@ func TestRefreshTokenRotation(t *testing.T) {
 	}
 	if secondClaims["auth_time"] != authTime {
 		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", secondClaims["auth_time"], authTime)
+	}
+	if secondClaims["acr"] != defaultACRValue {
+		t.Fatalf("refresh id_token acr mismatch: %v", secondClaims["acr"])
+	}
+	if !claimHasStringValue(t, secondClaims, "amr", defaultAMRMethod) {
+		t.Fatalf("refresh id_token amr must include %s", defaultAMRMethod)
 	}
 	if secondClaims["at_hash"] != accessTokenHash(secondTokenResp.AccessToken) {
 		t.Fatalf("refresh id_token at_hash mismatch: %v", secondClaims["at_hash"])
@@ -318,6 +343,7 @@ func TestRefreshTokenRejectInvalidScope(t *testing.T) {
 		"openid offline_access",
 		"state-refresh-scope",
 		"",
+		"",
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -347,6 +373,31 @@ func TestRefreshTokenRejectInvalidScope(t *testing.T) {
 		t.Fatalf("refresh exchange with scope escalation must fail")
 	}
 	assertOAuthError(t, err, "invalid_scope")
+}
+
+func TestAuthorizeRejectUnsupportedACRValues(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	_, err = provider.Authorize(
+		"code",
+		testClientID,
+		testRedirectURI,
+		"openid",
+		"state-acr",
+		"",
+		"urn:unsupported:acr",
+		pkceS256(testCodeVerifier),
+		"S256",
+	)
+	if err == nil {
+		t.Fatalf("authorize with unsupported acr_values must fail")
+	}
+	assertOAuthError(t, err, "invalid_request")
 }
 
 func assertOAuthError(t *testing.T, err error, code string) {
@@ -398,6 +449,21 @@ func pkceS256(verifier string) string {
 func contains(values []string, target string) bool {
 	for _, v := range values {
 		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+func claimHasStringValue(t *testing.T, claims map[string]any, claimName, target string) bool {
+	t.Helper()
+
+	values, ok := claims[claimName].([]any)
+	if !ok {
+		return false
+	}
+	for _, v := range values {
+		if s, ok := v.(string); ok && s == target {
 			return true
 		}
 	}
