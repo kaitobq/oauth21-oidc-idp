@@ -482,6 +482,104 @@ func TestTokenFlowWithPrivateKeyJWT(t *testing.T) {
 	}
 }
 
+func TestTokenFlowWithPrivateKeyJWTReplayAssertion(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+	h := NewHandler(provider)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	authorizeCode := func(state string) string {
+		codeChallenge := pkceS256(testCodeVerifier)
+		authReq := httptest.NewRequest(
+			http.MethodGet,
+			"/oauth2/authorize?response_type=code&client_id="+url.QueryEscape(core.DefaultPrivateJWTClientID)+
+				"&redirect_uri="+url.QueryEscape(core.DefaultPrivateJWTRedirect)+
+				"&scope="+url.QueryEscape("openid")+
+				"&state="+url.QueryEscape(state)+
+				"&code_challenge="+url.QueryEscape(codeChallenge)+
+				"&code_challenge_method=S256",
+			nil,
+		)
+		authRec := httptest.NewRecorder()
+		mux.ServeHTTP(authRec, authReq)
+		if authRec.Code != http.StatusFound {
+			t.Fatalf("expected 302 for authorize, got %d", authRec.Code)
+		}
+		code := queryParam(t, authRec.Header().Get("Location"), "code")
+		if code == "" {
+			t.Fatalf("authorize redirect must include code")
+		}
+		return code
+	}
+
+	code1 := authorizeCode("handler-private-jwt-replay-state-1")
+	code2 := authorizeCode("handler-private-jwt-replay-state-2")
+
+	replayAssertion := signClientAssertion(
+		t,
+		privateKeyPEM,
+		core.DefaultPrivateJWTClientID,
+		testIssuer+"/oauth2/token",
+		time.Now().UTC().Add(5*time.Minute),
+	)
+
+	form1 := url.Values{
+		"grant_type":            {"authorization_code"},
+		"code":                  {code1},
+		"redirect_uri":          {core.DefaultPrivateJWTRedirect},
+		"client_id":             {core.DefaultPrivateJWTClientID},
+		"code_verifier":         {testCodeVerifier},
+		"client_assertion_type": {core.ClientAssertionTypeJWTBearer},
+		"client_assertion":      {replayAssertion},
+	}
+	req1 := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form1.Encode()))
+	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec1 := httptest.NewRecorder()
+	mux.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200 for first private_key_jwt assertion, got %d", rec1.Code)
+	}
+
+	form2 := url.Values{
+		"grant_type":            {"authorization_code"},
+		"code":                  {code2},
+		"redirect_uri":          {core.DefaultPrivateJWTRedirect},
+		"client_id":             {core.DefaultPrivateJWTClientID},
+		"code_verifier":         {testCodeVerifier},
+		"client_assertion_type": {core.ClientAssertionTypeJWTBearer},
+		"client_assertion":      {replayAssertion},
+	}
+	req2 := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form2.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for replayed private_key_jwt assertion, got %d", rec2.Code)
+	}
+
+	var errResp map[string]string
+	if err := json.Unmarshal(rec2.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("invalid token error json: %v", err)
+	}
+	if errResp["error"] != "invalid_client" {
+		t.Fatalf("expected invalid_client, got %s", errResp["error"])
+	}
+}
+
 func TestTokenErrorContract(t *testing.T) {
 	t.Parallel()
 

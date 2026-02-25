@@ -23,6 +23,7 @@ OAuth 2.1 / OIDC の基本要件を満たす IDP を実装し、相互運用性�
 1. `client_secret_basic` または `private_key_jwt` をサポートする。
 2. アクセストークン期限切れ時は標準エラー形式で応答する。
 3. Refresh Token は Rotation を前提に設計する。
+4. `private_key_jwt` の `client_assertion` は `jti` の再利用（replay）を拒否する。
 
 ### 3. OIDC Requirements
 1. `/.well-known/openid-configuration` を提供する。

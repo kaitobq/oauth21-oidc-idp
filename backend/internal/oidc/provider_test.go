@@ -366,6 +366,27 @@ func TestAuthenticateTokenClient(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("private_key_jwt client authentication must succeed: %v", err)
 	}
+	replayAssertionErr := provider.AuthenticateTokenClient(TokenClientAuthentication{
+		ClientID:            DefaultPrivateJWTClientID,
+		AuthMethod:          TokenEndpointAuthMethodPrivate,
+		ClientAssertionType: ClientAssertionTypeJWTBearer,
+		ClientAssertion:     validAssertion,
+	})
+	assertOAuthError(t, replayAssertionErr, "invalid_client")
+
+	missingJTIAssertionErr := provider.AuthenticateTokenClient(TokenClientAuthentication{
+		ClientID:            DefaultPrivateJWTClientID,
+		AuthMethod:          TokenEndpointAuthMethodPrivate,
+		ClientAssertionType: ClientAssertionTypeJWTBearer,
+		ClientAssertion: signClientAssertionWithoutJTI(
+			t,
+			privateKeyPEM,
+			DefaultPrivateJWTClientID,
+			testIssuer+"/oauth2/token",
+			time.Now().UTC().Add(5*time.Minute),
+		),
+	})
+	assertOAuthError(t, missingJTIAssertionErr, "invalid_client")
 
 	invalidSecretErr := provider.AuthenticateTokenClient(TokenClientAuthentication{
 		ClientID:     DefaultConfidentialClientID,
@@ -801,6 +822,43 @@ func signClientAssertion(t *testing.T, privateKeyPEM, clientID, audience string,
 		"exp": expiresAt.Unix(),
 		"iat": now.Unix(),
 		"jti": fmt.Sprintf("jti-%d", now.UnixNano()),
+	}
+	headerBytes, err := json.Marshal(header)
+	if err != nil {
+		t.Fatalf("marshal jwt header error: %v", err)
+	}
+	claimsBytes, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal jwt claims error: %v", err)
+	}
+
+	headerEncoded := base64.RawURLEncoding.EncodeToString(headerBytes)
+	claimsEncoded := base64.RawURLEncoding.EncodeToString(claimsBytes)
+	signingInput := headerEncoded + "." + claimsEncoded
+
+	digest := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
+	if err != nil {
+		t.Fatalf("sign jwt error: %v", err)
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func signClientAssertionWithoutJTI(t *testing.T, privateKeyPEM, clientID, audience string, expiresAt time.Time) string {
+	t.Helper()
+
+	privateKey := parseRSAPrivateKey(t, privateKeyPEM)
+	now := time.Now().UTC()
+	header := map[string]string{
+		"alg": "RS256",
+		"typ": "JWT",
+	}
+	claims := map[string]any{
+		"iss": clientID,
+		"sub": clientID,
+		"aud": audience,
+		"exp": expiresAt.Unix(),
+		"iat": now.Unix(),
 	}
 	headerBytes, err := json.Marshal(header)
 	if err != nil {
