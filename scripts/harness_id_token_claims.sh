@@ -185,6 +185,11 @@ if jq -e --arg nonce "$NONCE" '.nonce == $nonce' "$id_claims_file" >/dev/null 2>
 else
   fail "id_token nonce mismatch"
 fi
+if jq -e --arg azp "$CLIENT_ID" '.azp == $azp' "$id_claims_file" >/dev/null 2>&1; then
+  pass "id_token includes azp"
+else
+  fail "id_token azp mismatch"
+fi
 if jq -e '.auth_time | numbers' "$id_claims_file" >/dev/null 2>&1; then
   pass "id_token includes numeric auth_time"
 else
@@ -246,6 +251,11 @@ if jq -e 'has("nonce") | not' "$refresh_claims_file" >/dev/null 2>&1; then
   pass "refresh id_token does not include nonce"
 else
   fail "refresh id_token must not include nonce"
+fi
+if jq -e --arg azp "$CLIENT_ID" '.azp == $azp' "$refresh_claims_file" >/dev/null 2>&1; then
+  pass "refresh id_token preserves azp"
+else
+  fail "refresh id_token azp mismatch"
 fi
 if jq -e --arg auth_time "$auth_time" '.auth_time | tostring == $auth_time' "$refresh_claims_file" >/dev/null 2>&1; then
   pass "refresh id_token preserves auth_time"
