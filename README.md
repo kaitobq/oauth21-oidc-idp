@@ -29,6 +29,7 @@ Dependency direction is fixed as `handler -> application -> domain` and `infra -
   - Token Endpoint (`authorization_code` / `refresh_token`): `/oauth2/token`
 - optional:
   - `organization` API (`ENABLE_ORGANIZATION_API=true` のときのみ有効)
+  - 署名鍵ローテーション API (`OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true` のときのみ有効)
 
 ### API Contract Policy
 
@@ -84,6 +85,9 @@ BASE_URL=http://localhost:8080 make harness-client-secret-basic
 
 # Validate private_key_jwt client auth
 BASE_URL=http://localhost:8080 make harness-private-key-jwt
+
+# Validate signing key rotation API + JWKS reflection
+BASE_URL=http://localhost:8080 OIDC_SIGNING_KEY_ROTATION_TOKEN=dev-signing-key-rotation-token make harness-signing-key-rotation
 ```
 
 ### Local Clients
@@ -104,8 +108,13 @@ BASE_URL=http://localhost:8080 make harness-private-key-jwt
 - `OIDC_PRIVATE_JWT_ENABLED`（default: `true`）
 - `OIDC_PRIVATE_JWT_CLIENT_ID`（default: `local-private-jwt-client`）
 - `OIDC_PRIVATE_JWT_REDIRECT_URI`（default: `http://localhost:3000/callback`）
-- `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/dev/private_jwt_client_public.pem`）
+- `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/local/private_jwt_client_public.pem`）
 - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM`（任意。設定時は `*_PATH` より優先）
+- `OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH`（harness 用。default: `harness/keys/local/private_jwt_client_private.pem`）
+- `OIDC_ENABLE_SIGNING_KEY_ROTATION_API`（default: `false`）
+- `OIDC_SIGNING_KEY_ROTATION_TOKEN`（default: `dev-signing-key-rotation-token`）
+
+`make bootstrap` は `private_key_jwt` 用の開発鍵ペアをローカルに自動生成します。
 
 ## Development
 

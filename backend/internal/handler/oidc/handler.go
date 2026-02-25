@@ -1,6 +1,7 @@
 package oidc
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,11 +12,21 @@ import (
 )
 
 type Handler struct {
-	provider *core.Provider
+	provider                 *core.Provider
+	enableSigningKeyRotation bool
+	signingKeyRotationToken  string
 }
 
 func NewHandler(provider *core.Provider) *Handler {
 	return &Handler{provider: provider}
+}
+
+func NewHandlerWithSigningKeyRotation(provider *core.Provider, rotationToken string) *Handler {
+	return &Handler{
+		provider:                 provider,
+		enableSigningKeyRotation: true,
+		signingKeyRotationToken:  strings.TrimSpace(rotationToken),
+	}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -23,6 +34,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/oauth2/jwks", h.jwks)
 	mux.HandleFunc("/oauth2/authorize", h.authorize)
 	mux.HandleFunc("/oauth2/token", h.token)
+	if h.enableSigningKeyRotation {
+		mux.HandleFunc("/oauth2/admin/rotate-signing-key", h.rotateSigningKey)
+	}
 }
 
 func (h *Handler) discovery(w http.ResponseWriter, _ *http.Request) {
@@ -119,6 +133,52 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) rotateSigningKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+			"error":             "invalid_request",
+			"error_description": "method must be POST",
+		})
+		return
+	}
+
+	if strings.TrimSpace(h.signingKeyRotationToken) == "" {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":             "server_error",
+			"error_description": "signing key rotation token is not configured",
+		})
+		return
+	}
+
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	parts := strings.SplitN(authorization, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error":             "unauthorized",
+			"error_description": "authorization header must use bearer token",
+		})
+		return
+	}
+	token := strings.TrimSpace(parts[1])
+	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.signingKeyRotationToken)) != 1 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error":             "unauthorized",
+			"error_description": "invalid signing key rotation token",
+		})
+		return
+	}
+
+	kid, err := h.provider.RotateSigningKey()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":             "server_error",
+			"error_description": "failed to rotate signing key",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"kid": kid})
 }
 
 func (h *Handler) writeOAuthError(w http.ResponseWriter, err error) {

@@ -1,11 +1,17 @@
 id: jwks-key-rotation
 priority: p1
-objective: 署名鍵ローテーション時に JWKS 公開が整合すること
+objective: 署名鍵ローテーションAPI実行後に JWKS 公開が整合すること
+preconditions:
+  - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true`
+  - `OIDC_SIGNING_KEY_ROTATION_TOKEN` が設定済み
 steps:
-  - 新鍵を active に昇格
+  - `/oauth2/admin/rotate-signing-key` に Bearer token 付きで POST
   - JWKS を取得
-  - 旧鍵の段階的無効化を確認
+  - active kid の更新と grace window を確認
 expect:
-  - JWKS に active 鍵が含まれる
+  - 不正 token は `401` / `unauthorized` で拒否される
+  - ローテーション成功時は `200` と新 `kid` が返る
+  - JWKS の先頭 key (`keys[0].kid`) が新 `kid` と一致する
+  - 直前の active `kid` は grace window 中に保持される
   - kid 衝突がない
-  - grace period 後に旧鍵が除外される
+  - 公開鍵数は上限（2）を超えない

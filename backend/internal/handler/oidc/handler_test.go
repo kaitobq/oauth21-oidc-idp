@@ -30,36 +30,6 @@ const (
 	coreDefaultAMRMethod = "pwd"
 )
 
-const testPrivateJWTClientPrivateKeyPEM = `-----BEGIN PRIVATE KEY-----
-MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC0qNCu6+wFHoKW
-3vdWz8mu8ebY7tA/z9ukz4b5UOqkC178phzD5vMD7DOb/vnWN1ShxX5l7i/3LBo8
-dMD2Rnimnh8GM1dz2uUoZm8fRJSHNJgF4qTViOCefaZZs2zwnK8ZZ0LrmK4Szu4a
-cdK2NU/tl3lh3Idm55WTtaWwbQhHGwbECULZPRHwelcrPwH+FLR3Iz1S0AuVSrbh
-rOC3jhdkT4QZTHGuRbQT+qMlK9EuQSlsA2PGh0GKqSrPt5G6GIUXD5y7hs8/uMcP
-+LgcgTQKh3StSXoFMpVOZzbJtseJyOwurAD/MbyME/eH2WStpKACuZuLKNe0t4pW
-sEWA4W5PAgMBAAECggEAD0bvTrt4m/42gNeeBuNPZNHj+ZhIV/0Vz9wUx+SF0xV7
-FNZfPFm9VymUO67WJb1MFNoElE4OFFLQbShaYPkYns5kRTv2Oz/ZfQ8ceoJsJPrX
-mDfQRJZsmDp75L39imNVk0peKFoi7kg9blMNxIbBmY/jndjuQk93IKSNvFucBZco
-vDbP2Y5Fqa/OP01q7Y1gWZ9CJDDPwEQT66B2HLVhrcmui4/E6qIo1Id/zjs5TMm/
-NTbV3E2Y4jsjaAKmz5sLEFoQmW+HGoUL2K/4FmB7Ym+WfxD7fLWxFsODZjloCOq4
-HUFUHnVXTJWwe02qtYXKBmw5FruRgDNpLwN3GJUwoQKBgQD4lAlXX7/YgnXe74U2
-ASoJGQqg84N8wElMzu7nf32d+3F5B7nxBaTpN57YHOtpefD+ZgfEa3+q8L+5uQLH
-58MwpffF1PCqJR3IO3SMCBzwHolL61gs+IGous5nGm+3Fgs5TvUs6EtL+mnsHQX9
-Ut/xk7+0XAfDyhCDS97iPepRtwKBgQC6Dac6E9wMQVPU7+SPhekCz3icNoNYXgVg
-2SsXvpnVXxqh+A8zZ+iZxbV73tC7lvqG5wgjIxGyI9egzISeHIaKVJYWHYzKAnxm
-IRzB0ghaVEBDnIzx4R+EzoLQ5dcUx3/wCMJQLEQhNp5yeTsm6C/2NQoALSikgq0+
-6nP7JBhoKQKBgQDjNHwtTqlNvkD6mjdKG1pOooLihnHCjwbwm5wmIJOy2Obo1zUP
-pjcLq/kWU6ig6gJqpNuonxE8L30uxnpSOfZg+vIz8uRewDoukJmAfNHmcCLSL7SS
-tjnc/ZI3DyTZVd7AbPkQKOrZ8XLri8OzvhJO/tsUgaHfRUw+lhSM+ka4lQKBgQCT
-jsqHJEMMMS+UnSIPtivEP9mvQwjOp9rqIbKspU0KTeAofz1HDu0KMCSsdl3juW0+
-WrM4ctLRDt4wOKQhZgxKX6WdKpiDio8wzKgrDDH1ugYx2VJrb5l40fQsS21WnJba
-P4gk38a09MWbkoyYYePQB+bDlw051C4kzPtpPgphaQKBgQD1mrOH6LrSogKR8F4h
-slXGSdUuRgQ04Xx7yuINDGg9BNsk0/WCYQRHk5i4wdbX+KF5VXlFn/4y247SdM6D
-oXwN7iwKj3XeiEQ1VZ9VOyF40bEJYi8crBx+gUIVSMcprL69Eej9m8ZrIJZU7ZuV
-cweQ8NEor3To+VWCEMpkqZLHtA==
------END PRIVATE KEY-----
-`
-
 func TestDiscoveryEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -67,10 +37,11 @@ func TestDiscoveryEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
 	if err := provider.RegisterPrivateJWTClient(
 		core.DefaultPrivateJWTClientID,
 		core.DefaultPrivateJWTRedirect,
-		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
 	); err != nil {
 		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
@@ -133,10 +104,11 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
 	if err := provider.RegisterPrivateJWTClient(
 		core.DefaultPrivateJWTClientID,
 		core.DefaultPrivateJWTRedirect,
-		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
 	); err != nil {
 		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
@@ -333,10 +305,11 @@ func TestTokenFlowWithClientSecretBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
 	if err := provider.RegisterPrivateJWTClient(
 		core.DefaultPrivateJWTClientID,
 		core.DefaultPrivateJWTRedirect,
-		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
 	); err != nil {
 		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
@@ -412,10 +385,11 @@ func TestTokenFlowWithPrivateKeyJWT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
 	if err := provider.RegisterPrivateJWTClient(
 		core.DefaultPrivateJWTClientID,
 		core.DefaultPrivateJWTRedirect,
-		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
 	); err != nil {
 		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
@@ -447,7 +421,7 @@ func TestTokenFlowWithPrivateKeyJWT(t *testing.T) {
 
 	invalidAssertion := signClientAssertion(
 		t,
-		testPrivateJWTClientPrivateKeyPEM,
+		privateKeyPEM,
 		core.DefaultPrivateJWTClientID,
 		"http://invalid.example/token",
 		time.Now().UTC().Add(5*time.Minute),
@@ -486,7 +460,7 @@ func TestTokenFlowWithPrivateKeyJWT(t *testing.T) {
 		"client_assertion_type": {core.ClientAssertionTypeJWTBearer},
 		"client_assertion": {signClientAssertion(
 			t,
-			testPrivateJWTClientPrivateKeyPEM,
+			privateKeyPEM,
 			core.DefaultPrivateJWTClientID,
 			testIssuer+"/oauth2/token",
 			time.Now().UTC().Add(5*time.Minute),
@@ -505,6 +479,135 @@ func TestTokenFlowWithPrivateKeyJWT(t *testing.T) {
 	}
 	if tokenResp["access_token"] == "" {
 		t.Fatalf("token response must include access_token")
+	}
+}
+
+func TestRotateSigningKeyEndpointDisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	h := NewHandler(provider)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-signing-key", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("rotate endpoint must be disabled by default: got=%d want=%d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestRotateSigningKeyEndpoint(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	h := NewHandlerWithSigningKeyRotation(provider, "test-rotation-token")
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	initialKID := provider.JWKS().Keys[0].Kid
+	if initialKID == "" {
+		t.Fatalf("initial kid must not be empty")
+	}
+
+	methodReq := httptest.NewRequest(http.MethodGet, "/oauth2/admin/rotate-signing-key", nil)
+	methodRec := httptest.NewRecorder()
+	mux.ServeHTTP(methodRec, methodReq)
+	if methodRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("method check failed: got=%d want=%d", methodRec.Code, http.StatusMethodNotAllowed)
+	}
+
+	missingAuthReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-signing-key", nil)
+	missingAuthRec := httptest.NewRecorder()
+	mux.ServeHTTP(missingAuthRec, missingAuthReq)
+	if missingAuthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing auth must be rejected: got=%d want=%d", missingAuthRec.Code, http.StatusUnauthorized)
+	}
+
+	invalidTokenReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-signing-key", nil)
+	invalidTokenReq.Header.Set("Authorization", "Bearer wrong-token")
+	invalidTokenRec := httptest.NewRecorder()
+	mux.ServeHTTP(invalidTokenRec, invalidTokenReq)
+	if invalidTokenRec.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid token must be rejected: got=%d want=%d", invalidTokenRec.Code, http.StatusUnauthorized)
+	}
+
+	rotateReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-signing-key", nil)
+	rotateReq.Header.Set("Authorization", "Bearer test-rotation-token")
+	rotateRec := httptest.NewRecorder()
+	mux.ServeHTTP(rotateRec, rotateReq)
+	if rotateRec.Code != http.StatusOK {
+		t.Fatalf("rotate request failed: got=%d want=%d", rotateRec.Code, http.StatusOK)
+	}
+
+	var rotateResp map[string]string
+	if err := json.Unmarshal(rotateRec.Body.Bytes(), &rotateResp); err != nil {
+		t.Fatalf("rotate response json error: %v", err)
+	}
+	rotatedKID := rotateResp["kid"]
+	if rotatedKID == "" {
+		t.Fatalf("rotate response must include kid")
+	}
+	if rotatedKID == initialKID {
+		t.Fatalf("rotated kid must differ from initial kid")
+	}
+
+	jwksReq := httptest.NewRequest(http.MethodGet, "/oauth2/jwks", nil)
+	jwksRec := httptest.NewRecorder()
+	mux.ServeHTTP(jwksRec, jwksReq)
+	if jwksRec.Code != http.StatusOK {
+		t.Fatalf("jwks endpoint status mismatch: got=%d want=%d", jwksRec.Code, http.StatusOK)
+	}
+
+	var jwksDoc struct {
+		Keys []struct {
+			Kid string `json:"kid"`
+		} `json:"keys"`
+	}
+	if err := json.Unmarshal(jwksRec.Body.Bytes(), &jwksDoc); err != nil {
+		t.Fatalf("jwks json error: %v", err)
+	}
+	if len(jwksDoc.Keys) != 2 {
+		t.Fatalf("jwks key count mismatch after rotation: got=%d want=%d", len(jwksDoc.Keys), 2)
+	}
+	if jwksDoc.Keys[0].Kid != rotatedKID {
+		t.Fatalf("jwks active kid mismatch: got=%s want=%s", jwksDoc.Keys[0].Kid, rotatedKID)
+	}
+	if jwksDoc.Keys[1].Kid != initialKID {
+		t.Fatalf("jwks must retain previous key after rotation: got=%s want=%s", jwksDoc.Keys[1].Kid, initialKID)
+	}
+}
+
+func TestRotateSigningKeyEndpointWithoutTokenConfig(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	h := NewHandlerWithSigningKeyRotation(provider, "   ")
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-signing-key", nil)
+	req.Header.Set("Authorization", "Bearer any-token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("misconfigured token must return 500: got=%d want=%d", rec.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -607,6 +710,23 @@ func signClientAssertion(t *testing.T, privateKeyPEM, clientID, audience string,
 		t.Fatalf("sign jwt error: %v", err)
 	}
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func mustGenerateTestPrivateKeyPEM(t *testing.T) string {
+	t.Helper()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa private key error: %v", err)
+	}
+	privateKeyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("marshal pkcs8 private key error: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: privateKeyDER,
+	}))
 }
 
 func parseRSAPrivateKey(t *testing.T, privateKeyPEM string) *rsa.PrivateKey {

@@ -23,8 +23,11 @@
    - `OIDC_PRIVATE_JWT_ENABLED`（default: `true`）
    - `OIDC_PRIVATE_JWT_CLIENT_ID`（default: `local-private-jwt-client`）
    - `OIDC_PRIVATE_JWT_REDIRECT_URI`（default: `http://localhost:3000/callback`）
-   - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/dev/private_jwt_client_public.pem`）
+   - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/local/private_jwt_client_public.pem`）
    - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM`（任意。設定時は `*_PATH` より優先）
+   - `OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH`（harness 用。default: `harness/keys/local/private_jwt_client_private.pem`）
+   - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API`（default: `false`）
+   - `OIDC_SIGNING_KEY_ROTATION_TOKEN`（default: `dev-signing-key-rotation-token`）
 5. harness 実行
    ```bash
    BASE_URL=http://localhost:8080 make harness-smoke
@@ -33,6 +36,7 @@
    BASE_URL=http://localhost:8080 make harness-id-token-claims
    BASE_URL=http://localhost:8080 make harness-client-secret-basic
    BASE_URL=http://localhost:8080 make harness-private-key-jwt
+   BASE_URL=http://localhost:8080 OIDC_SIGNING_KEY_ROTATION_TOKEN=dev-signing-key-rotation-token make harness-signing-key-rotation
    ```
 
 ## Verification Checklist
@@ -57,6 +61,9 @@
 - 不正な Basic 認証が `401` / `invalid_client` で拒否される
 - confidential client が `private_key_jwt` で token 交換できる
 - 不正な client assertion が `401` / `invalid_client` で拒否される
+- `OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true` のとき、`/oauth2/admin/rotate-signing-key` が有効化される
+- 署名鍵ローテーション後、JWKS の active `kid` が更新される
+- ローテーション直後は旧 active `kid` が grace window 中に保持される
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール

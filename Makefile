@@ -1,4 +1,4 @@
-.PHONY: bootstrap harness-smoke harness-auth-code-pkce harness-refresh-rotation harness-id-token-claims harness-client-secret-basic harness-private-key-jwt setup gen lint-proto check test run-backend run-frontend clean
+.PHONY: bootstrap gen-private-jwt-dev-keys harness-smoke harness-auth-code-pkce harness-refresh-rotation harness-id-token-claims harness-client-secret-basic harness-private-key-jwt harness-signing-key-rotation setup gen lint-proto check test run-backend run-frontend clean
 
 bootstrap:
 	chmod +x scripts/harness_smoke.sh
@@ -7,7 +7,17 @@ bootstrap:
 	chmod +x scripts/harness_id_token_claims.sh
 	chmod +x scripts/harness_client_secret_basic.sh
 	chmod +x scripts/harness_private_key_jwt.sh
+	chmod +x scripts/harness_signing_key_rotation.sh
+	chmod +x scripts/generate_private_jwt_dev_keys.sh
+	OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH=$${OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH:-harness/keys/local/private_jwt_client_private.pem} \
+	OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH=$${OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH:-backend/config/keys/local/private_jwt_client_public.pem} \
+	scripts/generate_private_jwt_dev_keys.sh
 	@echo "bootstrap complete"
+
+gen-private-jwt-dev-keys:
+	OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH=$${OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH:-harness/keys/local/private_jwt_client_private.pem} \
+	OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH=$${OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH:-backend/config/keys/local/private_jwt_client_public.pem} \
+	scripts/generate_private_jwt_dev_keys.sh
 
 harness-smoke:
 	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_smoke.sh
@@ -26,6 +36,9 @@ harness-client-secret-basic:
 
 harness-private-key-jwt:
 	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_private_key_jwt.sh
+
+harness-signing-key-rotation:
+	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_signing_key_rotation.sh
 
 # ── Setup ──────────────────────────────────────────────
 setup: setup-backend setup-frontend setup-proto

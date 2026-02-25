@@ -24,36 +24,6 @@ const (
 	testNonce        = "nonce-provider-test-123"
 )
 
-const testPrivateJWTClientPrivateKeyPEM = `-----BEGIN PRIVATE KEY-----
-MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC0qNCu6+wFHoKW
-3vdWz8mu8ebY7tA/z9ukz4b5UOqkC178phzD5vMD7DOb/vnWN1ShxX5l7i/3LBo8
-dMD2Rnimnh8GM1dz2uUoZm8fRJSHNJgF4qTViOCefaZZs2zwnK8ZZ0LrmK4Szu4a
-cdK2NU/tl3lh3Idm55WTtaWwbQhHGwbECULZPRHwelcrPwH+FLR3Iz1S0AuVSrbh
-rOC3jhdkT4QZTHGuRbQT+qMlK9EuQSlsA2PGh0GKqSrPt5G6GIUXD5y7hs8/uMcP
-+LgcgTQKh3StSXoFMpVOZzbJtseJyOwurAD/MbyME/eH2WStpKACuZuLKNe0t4pW
-sEWA4W5PAgMBAAECggEAD0bvTrt4m/42gNeeBuNPZNHj+ZhIV/0Vz9wUx+SF0xV7
-FNZfPFm9VymUO67WJb1MFNoElE4OFFLQbShaYPkYns5kRTv2Oz/ZfQ8ceoJsJPrX
-mDfQRJZsmDp75L39imNVk0peKFoi7kg9blMNxIbBmY/jndjuQk93IKSNvFucBZco
-vDbP2Y5Fqa/OP01q7Y1gWZ9CJDDPwEQT66B2HLVhrcmui4/E6qIo1Id/zjs5TMm/
-NTbV3E2Y4jsjaAKmz5sLEFoQmW+HGoUL2K/4FmB7Ym+WfxD7fLWxFsODZjloCOq4
-HUFUHnVXTJWwe02qtYXKBmw5FruRgDNpLwN3GJUwoQKBgQD4lAlXX7/YgnXe74U2
-ASoJGQqg84N8wElMzu7nf32d+3F5B7nxBaTpN57YHOtpefD+ZgfEa3+q8L+5uQLH
-58MwpffF1PCqJR3IO3SMCBzwHolL61gs+IGous5nGm+3Fgs5TvUs6EtL+mnsHQX9
-Ut/xk7+0XAfDyhCDS97iPepRtwKBgQC6Dac6E9wMQVPU7+SPhekCz3icNoNYXgVg
-2SsXvpnVXxqh+A8zZ+iZxbV73tC7lvqG5wgjIxGyI9egzISeHIaKVJYWHYzKAnxm
-IRzB0ghaVEBDnIzx4R+EzoLQ5dcUx3/wCMJQLEQhNp5yeTsm6C/2NQoALSikgq0+
-6nP7JBhoKQKBgQDjNHwtTqlNvkD6mjdKG1pOooLihnHCjwbwm5wmIJOy2Obo1zUP
-pjcLq/kWU6ig6gJqpNuonxE8L30uxnpSOfZg+vIz8uRewDoukJmAfNHmcCLSL7SS
-tjnc/ZI3DyTZVd7AbPkQKOrZ8XLri8OzvhJO/tsUgaHfRUw+lhSM+ka4lQKBgQCT
-jsqHJEMMMS+UnSIPtivEP9mvQwjOp9rqIbKspU0KTeAofz1HDu0KMCSsdl3juW0+
-WrM4ctLRDt4wOKQhZgxKX6WdKpiDio8wzKgrDDH1ugYx2VJrb5l40fQsS21WnJba
-P4gk38a09MWbkoyYYePQB+bDlw051C4kzPtpPgphaQKBgQD1mrOH6LrSogKR8F4h
-slXGSdUuRgQ04Xx7yuINDGg9BNsk0/WCYQRHk5i4wdbX+KF5VXlFn/4y247SdM6D
-oXwN7iwKj3XeiEQ1VZ9VOyF40bEJYi8crBx+gUIVSMcprL69Eej9m8ZrIJZU7ZuV
-cweQ8NEor3To+VWCEMpkqZLHtA==
------END PRIVATE KEY-----
-`
-
 func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	t.Parallel()
 
@@ -61,6 +31,7 @@ func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
 
 	d := provider.Discovery()
 	if d.Issuer != testIssuer {
@@ -104,7 +75,7 @@ func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	if err := provider.RegisterPrivateJWTClient(
 		DefaultPrivateJWTClientID,
 		DefaultPrivateJWTRedirect,
-		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
 	); err != nil {
 		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
@@ -119,6 +90,104 @@ func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	}
 	if ks.Keys[0].N == "" || ks.Keys[0].E == "" {
 		t.Fatalf("jwk modulus/exponent must not be empty")
+	}
+}
+
+func TestRotateSigningKey(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	initialJWKS := provider.JWKS()
+	if len(initialJWKS.Keys) != 1 {
+		t.Fatalf("initial jwks must contain one key")
+	}
+	initialKID := initialJWKS.Keys[0].Kid
+	if initialKID == "" {
+		t.Fatalf("initial kid must not be empty")
+	}
+
+	issueIDToken := func(state string) string {
+		redirectURL, err := provider.Authorize(
+			"code",
+			testClientID,
+			testRedirectURI,
+			"openid",
+			state,
+			"",
+			"",
+			pkceS256(testCodeVerifier),
+			"S256",
+		)
+		if err != nil {
+			t.Fatalf("Authorize error: %v", err)
+		}
+		code := queryParam(t, redirectURL, "code")
+		resp, err := provider.ExchangeAuthorizationCode(
+			"authorization_code",
+			code,
+			testRedirectURI,
+			testClientID,
+			testCodeVerifier,
+		)
+		if err != nil {
+			t.Fatalf("ExchangeAuthorizationCode error: %v", err)
+		}
+		return resp.IDToken
+	}
+
+	firstHeader := parseJWTHeader(t, issueIDToken("state-before-rotate"))
+	if firstHeader["kid"] != initialKID {
+		t.Fatalf("first id_token kid mismatch: got=%v want=%v", firstHeader["kid"], initialKID)
+	}
+
+	rotatedKID, err := provider.RotateSigningKey()
+	if err != nil {
+		t.Fatalf("RotateSigningKey error: %v", err)
+	}
+	if rotatedKID == initialKID {
+		t.Fatalf("rotated kid must differ from initial kid")
+	}
+
+	afterFirstRotate := provider.JWKS()
+	if len(afterFirstRotate.Keys) != defaultMaxPublishedSigningKeys {
+		t.Fatalf("jwks key count after first rotation mismatch: got=%d want=%d", len(afterFirstRotate.Keys), defaultMaxPublishedSigningKeys)
+	}
+	if afterFirstRotate.Keys[0].Kid != rotatedKID {
+		t.Fatalf("active jwks kid mismatch after first rotation: got=%s want=%s", afterFirstRotate.Keys[0].Kid, rotatedKID)
+	}
+	if !jwksContainsKID(afterFirstRotate, initialKID) {
+		t.Fatalf("jwks must retain previous key after first rotation")
+	}
+
+	secondHeader := parseJWTHeader(t, issueIDToken("state-after-first-rotate"))
+	if secondHeader["kid"] != rotatedKID {
+		t.Fatalf("id_token kid mismatch after first rotation: got=%v want=%v", secondHeader["kid"], rotatedKID)
+	}
+
+	secondRotatedKID, err := provider.RotateSigningKey()
+	if err != nil {
+		t.Fatalf("second RotateSigningKey error: %v", err)
+	}
+	if secondRotatedKID == rotatedKID {
+		t.Fatalf("second rotated kid must differ from previous rotated kid")
+	}
+
+	afterSecondRotate := provider.JWKS()
+	if len(afterSecondRotate.Keys) != defaultMaxPublishedSigningKeys {
+		t.Fatalf("jwks key count after second rotation mismatch: got=%d want=%d", len(afterSecondRotate.Keys), defaultMaxPublishedSigningKeys)
+	}
+	if afterSecondRotate.Keys[0].Kid != secondRotatedKID {
+		t.Fatalf("active jwks kid mismatch after second rotation: got=%s want=%s", afterSecondRotate.Keys[0].Kid, secondRotatedKID)
+	}
+	if !jwksContainsKID(afterSecondRotate, rotatedKID) {
+		t.Fatalf("jwks must retain previous active key after second rotation")
+	}
+	if jwksContainsKID(afterSecondRotate, initialKID) {
+		t.Fatalf("oldest key must be removed after exceeding max published keys")
 	}
 }
 
@@ -257,6 +326,7 @@ func TestAuthenticateTokenClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
 
 	if err := provider.AuthenticateTokenClient(TokenClientAuthentication{
 		ClientID:   testClientID,
@@ -276,14 +346,14 @@ func TestAuthenticateTokenClient(t *testing.T) {
 	if err := provider.RegisterPrivateJWTClient(
 		DefaultPrivateJWTClientID,
 		DefaultPrivateJWTRedirect,
-		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
 	); err != nil {
 		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
 
 	validAssertion := signClientAssertion(
 		t,
-		testPrivateJWTClientPrivateKeyPEM,
+		privateKeyPEM,
 		DefaultPrivateJWTClientID,
 		testIssuer+"/oauth2/token",
 		time.Now().UTC().Add(5*time.Minute),
@@ -316,7 +386,7 @@ func TestAuthenticateTokenClient(t *testing.T) {
 		ClientAssertionType: ClientAssertionTypeJWTBearer,
 		ClientAssertion: signClientAssertion(
 			t,
-			testPrivateJWTClientPrivateKeyPEM,
+			privateKeyPEM,
 			DefaultPrivateJWTClientID,
 			testIssuer+"/oauth2/token",
 			time.Now().UTC().Add(-5*time.Minute),
@@ -580,6 +650,25 @@ func parseJWTClaims(t *testing.T, rawToken string) map[string]any {
 	return claims
 }
 
+func parseJWTHeader(t *testing.T, rawToken string) map[string]any {
+	t.Helper()
+
+	parts := strings.Split(rawToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("invalid jwt format")
+	}
+	header, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("decode jwt header error: %v", err)
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(header, &claims); err != nil {
+		t.Fatalf("unmarshal jwt header error: %v", err)
+	}
+	return claims
+}
+
 func queryParam(t *testing.T, rawURL, name string) string {
 	t.Helper()
 
@@ -613,6 +702,15 @@ func claimHasStringValue(t *testing.T, claims map[string]any, claimName, target 
 	}
 	for _, v := range values {
 		if s, ok := v.(string); ok && s == target {
+			return true
+		}
+	}
+	return false
+}
+
+func jwksContainsKID(ks jwks, targetKID string) bool {
+	for _, key := range ks.Keys {
+		if key.Kid == targetKID {
 			return true
 		}
 	}
@@ -655,6 +753,23 @@ func signClientAssertion(t *testing.T, privateKeyPEM, clientID, audience string,
 		t.Fatalf("sign jwt error: %v", err)
 	}
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func mustGenerateTestPrivateKeyPEM(t *testing.T) string {
+	t.Helper()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa private key error: %v", err)
+	}
+	privateKeyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("marshal pkcs8 private key error: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: privateKeyDER,
+	}))
 }
 
 func parseRSAPrivateKey(t *testing.T, privateKeyPEM string) *rsa.PrivateKey {

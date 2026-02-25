@@ -21,6 +21,9 @@ frontend/node_modules/
 .env
 .env.local
 .env.*.local
+backend/config/keys/local/*.pem
+harness/keys/local/*.pem
+.gocache/
 
 # Build outputs
 dist/
