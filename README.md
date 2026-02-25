@@ -26,7 +26,7 @@ Dependency direction is fixed as `handler -> application -> domain` and `infra -
   - OIDC Discovery: `/.well-known/openid-configuration`
   - JWKS: `/oauth2/jwks`
   - Authorization Endpoint (Auth Code + PKCE): `/oauth2/authorize`
-  - Token Endpoint (Auth Code exchange): `/oauth2/token`
+  - Token Endpoint (`authorization_code` / `refresh_token`): `/oauth2/token`
 - optional:
   - `organization` API (`ENABLE_ORGANIZATION_API=true` のときのみ有効)
 
@@ -72,11 +72,15 @@ BASE_URL=http://localhost:8080 make harness-smoke
 
 # Validate auth code + PKCE flow
 BASE_URL=http://localhost:8080 make harness-auth-code-pkce
+
+# Validate refresh token rotation flow
+BASE_URL=http://localhost:8080 make harness-refresh-rotation
 ```
 
 ### Local Dev Client
 
 `/oauth2/authorize` と `/oauth2/token` は開発用の公開クライアント1件を事前登録しています。
+`offline_access` scope を付けると `refresh_token` が発行されます。
 
 - `OIDC_DEV_CLIENT_ID`（default: `local-dev-client`）
 - `OIDC_DEV_REDIRECT_URI`（default: `http://localhost:3000/callback`）

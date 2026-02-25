@@ -22,6 +22,7 @@ const (
 	DefaultDevClientRedirect = "http://localhost:3000/callback"
 	authCodeTTL              = 5 * time.Minute
 	accessTokenTTLSeconds    = int64(3600)
+	refreshTokenTTL          = 30 * 24 * time.Hour
 )
 
 // OAuthError maps internal validation failures to OAuth2-compatible responses.
@@ -55,6 +56,7 @@ type Provider struct {
 	mu        sync.Mutex
 	clients   map[string]*client
 	authCodes map[string]*authorizationCode
+	tokens    map[string]*refreshTokenGrant
 }
 
 type client struct {
@@ -72,6 +74,15 @@ type authorizationCode struct {
 	Subject       string
 	ExpiresAt     time.Time
 	Used          bool
+}
+
+type refreshTokenGrant struct {
+	Token     string
+	ClientID  string
+	Subject   string
+	Scope     string
+	ExpiresAt time.Time
+	Used      bool
 }
 
 type jwks struct {
@@ -103,11 +114,12 @@ type discoveryDocument struct {
 
 // TokenResponse is returned by the token endpoint.
 type TokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int64  `json:"expires_in"`
-	Scope       string `json:"scope,omitempty"`
-	IDToken     string `json:"id_token,omitempty"`
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int64  `json:"expires_in"`
+	Scope        string `json:"scope,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	IDToken      string `json:"id_token,omitempty"`
 }
 
 // NewProvider initializes a signing key and in-memory state.
@@ -160,6 +172,7 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 			},
 		},
 		authCodes: map[string]*authorizationCode{},
+		tokens:    map[string]*refreshTokenGrant{},
 	}, nil
 }
 
@@ -174,6 +187,7 @@ func (p *Provider) Discovery() discoveryDocument {
 		},
 		GrantTypesSupported: []string{
 			"authorization_code",
+			"refresh_token",
 		},
 		CodeChallengeMethodsSupported: []string{
 			"S256",
@@ -188,6 +202,7 @@ func (p *Provider) Discovery() discoveryDocument {
 			"openid",
 			"profile",
 			"email",
+			"offline_access",
 		},
 		TokenEndpointAuthMethodsSupported: []string{
 			"none",
@@ -312,6 +327,8 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 	}
 
 	entry.Used = true
+	subject := entry.Subject
+	scope := entry.Scope
 	p.mu.Unlock()
 
 	accessToken, err := randomToken(32)
@@ -323,11 +340,112 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 		AccessToken: accessToken,
 		TokenType:   "Bearer",
 		ExpiresIn:   accessTokenTTLSeconds,
-		Scope:       entry.Scope,
+		Scope:       scope,
 	}
 
-	if hasScope(entry.Scope, "openid") {
-		idToken, err := p.signIDToken(entry.Subject, entry.ClientID)
+	if hasScope(scope, "offline_access") {
+		refreshToken, err := randomToken(32)
+		if err != nil {
+			return nil, fmt.Errorf("generate refresh token: %w", err)
+		}
+		p.mu.Lock()
+		p.tokens[refreshToken] = &refreshTokenGrant{
+			Token:     refreshToken,
+			ClientID:  clientID,
+			Subject:   subject,
+			Scope:     scope,
+			ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
+		}
+		p.mu.Unlock()
+		resp.RefreshToken = refreshToken
+	}
+
+	if hasScope(scope, "openid") {
+		idToken, err := p.signIDToken(subject, clientID)
+		if err != nil {
+			return nil, fmt.Errorf("sign id token: %w", err)
+		}
+		resp.IDToken = idToken
+	}
+
+	return resp, nil
+}
+
+func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope string) (*TokenResponse, error) {
+	grantType = strings.TrimSpace(grantType)
+	refreshToken = strings.TrimSpace(refreshToken)
+	clientID = strings.TrimSpace(clientID)
+	scope = strings.TrimSpace(scope)
+
+	if grantType != "refresh_token" {
+		return nil, &OAuthError{Code: "unsupported_grant_type", Description: "grant_type must be refresh_token", Status: 400}
+	}
+	if refreshToken == "" || clientID == "" {
+		return nil, &OAuthError{Code: "invalid_request", Description: "refresh_token and client_id are required", Status: 400}
+	}
+
+	p.mu.Lock()
+	entry, ok := p.tokens[refreshToken]
+	if !ok {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "refresh token is invalid", Status: 400}
+	}
+	if entry.Used {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "refresh token was already used", Status: 400}
+	}
+	if time.Now().UTC().After(entry.ExpiresAt) {
+		delete(p.tokens, refreshToken)
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "refresh token has expired", Status: 400}
+	}
+	if entry.ClientID != clientID {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "client_id mismatch", Status: 400}
+	}
+
+	issuedScope := entry.Scope
+	if scope != "" {
+		if !isScopeSubset(scope, entry.Scope) {
+			p.mu.Unlock()
+			return nil, &OAuthError{Code: "invalid_scope", Description: "requested scope exceeds originally granted scope", Status: 400}
+		}
+		issuedScope = scope
+	}
+
+	entry.Used = true
+	subject := entry.Subject
+	p.mu.Unlock()
+
+	accessToken, err := randomToken(32)
+	if err != nil {
+		return nil, fmt.Errorf("generate access token: %w", err)
+	}
+	nextRefreshToken, err := randomToken(32)
+	if err != nil {
+		return nil, fmt.Errorf("generate refresh token: %w", err)
+	}
+
+	p.mu.Lock()
+	p.tokens[nextRefreshToken] = &refreshTokenGrant{
+		Token:     nextRefreshToken,
+		ClientID:  clientID,
+		Subject:   subject,
+		Scope:     issuedScope,
+		ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
+	}
+	p.mu.Unlock()
+
+	resp := &TokenResponse{
+		AccessToken:  accessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    accessTokenTTLSeconds,
+		Scope:        issuedScope,
+		RefreshToken: nextRefreshToken,
+	}
+
+	if hasScope(issuedScope, "openid") {
+		idToken, err := p.signIDToken(subject, clientID)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -389,4 +507,17 @@ func hasScope(scope, target string) bool {
 		}
 	}
 	return false
+}
+
+func isScopeSubset(requestedScope, originalScope string) bool {
+	original := map[string]struct{}{}
+	for _, s := range strings.Fields(originalScope) {
+		original[s] = struct{}{}
+	}
+	for _, s := range strings.Fields(requestedScope) {
+		if _, ok := original[s]; !ok {
+			return false
+		}
+	}
+	return true
 }

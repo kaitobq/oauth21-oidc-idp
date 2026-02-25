@@ -9,4 +9,6 @@ steps:
 expect:
   - 1回目は成功
   - 旧トークン再利用は拒否
-  - 監査ログに再利用検知イベントを記録
+  - 新しい refresh_token が払い出される（rotation）
+notes:
+  - 監査ログ出力は hardening 後続フェーズで実装予定

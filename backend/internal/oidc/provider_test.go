@@ -36,11 +36,17 @@ func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	if !contains(d.GrantTypesSupported, "authorization_code") {
 		t.Fatalf("grant_types_supported must include authorization_code")
 	}
+	if !contains(d.GrantTypesSupported, "refresh_token") {
+		t.Fatalf("grant_types_supported must include refresh_token")
+	}
 	if !contains(d.CodeChallengeMethodsSupported, "S256") {
 		t.Fatalf("code_challenge_methods_supported must include S256")
 	}
 	if !contains(d.ScopesSupported, "openid") {
 		t.Fatalf("scopes_supported must include openid")
+	}
+	if !contains(d.ScopesSupported, "offline_access") {
+		t.Fatalf("scopes_supported must include offline_access")
 	}
 	if !contains(d.TokenEndpointAuthMethodsSupported, "none") {
 		t.Fatalf("token_endpoint_auth_methods_supported must include none")
@@ -105,6 +111,9 @@ func TestAuthorizeAndExchangeAuthorizationCodeSuccess(t *testing.T) {
 	}
 	if tokenResp.IDToken == "" {
 		t.Fatalf("id_token must be returned for openid scope")
+	}
+	if tokenResp.RefreshToken != "" {
+		t.Fatalf("refresh_token must not be returned without offline_access scope")
 	}
 }
 
@@ -187,6 +196,118 @@ func TestExchangeAuthorizationCodeRejectVerifierMismatch(t *testing.T) {
 		t.Fatalf("exchange must fail on verifier mismatch")
 	}
 	assertOAuthError(t, err, "invalid_grant")
+}
+
+func TestRefreshTokenRotation(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	redirectURL, err := provider.Authorize(
+		"code",
+		testClientID,
+		testRedirectURI,
+		"openid offline_access",
+		"state-refresh",
+		pkceS256(testCodeVerifier),
+		"S256",
+	)
+	if err != nil {
+		t.Fatalf("Authorize error: %v", err)
+	}
+	code := queryParam(t, redirectURL, "code")
+
+	firstTokenResp, err := provider.ExchangeAuthorizationCode(
+		"authorization_code",
+		code,
+		testRedirectURI,
+		testClientID,
+		testCodeVerifier,
+	)
+	if err != nil {
+		t.Fatalf("ExchangeAuthorizationCode error: %v", err)
+	}
+	if firstTokenResp.RefreshToken == "" {
+		t.Fatalf("refresh_token must be returned for offline_access scope")
+	}
+
+	secondTokenResp, err := provider.ExchangeRefreshToken(
+		"refresh_token",
+		firstTokenResp.RefreshToken,
+		testClientID,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("ExchangeRefreshToken error: %v", err)
+	}
+	if secondTokenResp.AccessToken == "" {
+		t.Fatalf("refresh exchange must issue access_token")
+	}
+	if secondTokenResp.RefreshToken == "" {
+		t.Fatalf("refresh exchange must rotate refresh_token")
+	}
+	if secondTokenResp.RefreshToken == firstTokenResp.RefreshToken {
+		t.Fatalf("refresh_token must be rotated")
+	}
+
+	_, err = provider.ExchangeRefreshToken(
+		"refresh_token",
+		firstTokenResp.RefreshToken,
+		testClientID,
+		"",
+	)
+	if err == nil {
+		t.Fatalf("reusing refresh token must fail")
+	}
+	assertOAuthError(t, err, "invalid_grant")
+}
+
+func TestRefreshTokenRejectInvalidScope(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	redirectURL, err := provider.Authorize(
+		"code",
+		testClientID,
+		testRedirectURI,
+		"openid offline_access",
+		"state-refresh-scope",
+		pkceS256(testCodeVerifier),
+		"S256",
+	)
+	if err != nil {
+		t.Fatalf("Authorize error: %v", err)
+	}
+	code := queryParam(t, redirectURL, "code")
+
+	firstTokenResp, err := provider.ExchangeAuthorizationCode(
+		"authorization_code",
+		code,
+		testRedirectURI,
+		testClientID,
+		testCodeVerifier,
+	)
+	if err != nil {
+		t.Fatalf("ExchangeAuthorizationCode error: %v", err)
+	}
+
+	_, err = provider.ExchangeRefreshToken(
+		"refresh_token",
+		firstTokenResp.RefreshToken,
+		testClientID,
+		"openid offline_access email",
+	)
+	if err == nil {
+		t.Fatalf("refresh exchange with scope escalation must fail")
+	}
+	assertOAuthError(t, err, "invalid_scope")
 }
 
 func assertOAuthError(t *testing.T, err error, code string) {

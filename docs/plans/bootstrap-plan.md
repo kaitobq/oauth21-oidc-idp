@@ -3,7 +3,7 @@
 ## Current Phase
 - 2026-02-25: Phase 0（repo + docs + harness scaffold）
 - 2026-02-25: Phase 1 完了（OIDC discovery + JWKS + Auth Code + PKCE 最小実装）
-- 2026-02-25: Phase 2 着手（hardening）
+- 2026-02-25: Phase 2 進行中（refresh token rotation 最小実装）
 
 ## Implementation Plan
 
@@ -31,4 +31,4 @@
 ## Next Actions
 1. クライアント登録を静的1件から永続化モデルへ移行
 2. ID Token claim を拡張（`nonce`, `auth_time`, `at_hash` など）
-3. refresh token rotation / key rotation / 監査ログを段階導入
+3. 署名鍵ローテーションと監査ログを段階導入
