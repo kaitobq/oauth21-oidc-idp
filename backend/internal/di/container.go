@@ -27,7 +27,7 @@ type Container struct {
 func NewContainer() (*Container, error) {
 	cfg := config.Load()
 
-	provider, err := coreOIDC.NewProvider(cfg.Issuer)
+	provider, err := coreOIDC.NewProvider(cfg.Issuer, cfg.DevClientID, cfg.DevClientRedirectURI)
 	if err != nil {
 		return nil, fmt.Errorf("initialize oidc provider: %w", err)
 	}

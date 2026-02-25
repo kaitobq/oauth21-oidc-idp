@@ -1,20 +1,77 @@
 package oidc
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
+	"net/url"
 	"strings"
+	"sync"
+	"time"
 )
 
-// Provider exposes OIDC discovery metadata and JWKS.
+const (
+	DefaultDevClientID       = "local-dev-client"
+	DefaultDevClientRedirect = "http://localhost:3000/callback"
+	authCodeTTL              = 5 * time.Minute
+	accessTokenTTLSeconds    = int64(3600)
+)
+
+// OAuthError maps internal validation failures to OAuth2-compatible responses.
+type OAuthError struct {
+	Code        string
+	Description string
+	Status      int
+}
+
+func (e *OAuthError) Error() string {
+	if e.Description == "" {
+		return e.Code
+	}
+	return e.Code + ": " + e.Description
+}
+
+func (e *OAuthError) Response() map[string]string {
+	resp := map[string]string{"error": e.Code}
+	if e.Description != "" {
+		resp["error_description"] = e.Description
+	}
+	return resp
+}
+
+// Provider exposes OIDC discovery metadata, JWKS and minimal auth code + PKCE flow.
 type Provider struct {
-	issuer string
-	jwks   jwks
+	issuer     string
+	privateKey *rsa.PrivateKey
+	jwks       jwks
+
+	mu        sync.Mutex
+	clients   map[string]*client
+	authCodes map[string]*authorizationCode
+}
+
+type client struct {
+	ID           string
+	RedirectURIs map[string]struct{}
+}
+
+type authorizationCode struct {
+	Code          string
+	ClientID      string
+	RedirectURI   string
+	Scope         string
+	State         string
+	CodeChallenge string
+	Subject       string
+	ExpiresAt     time.Time
+	Used          bool
 }
 
 type jwks struct {
@@ -44,11 +101,32 @@ type discoveryDocument struct {
 	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
 }
 
-// NewProvider initializes an in-memory RSA key and metadata.
-func NewProvider(issuer string) (*Provider, error) {
+// TokenResponse is returned by the token endpoint.
+type TokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int64  `json:"expires_in"`
+	Scope       string `json:"scope,omitempty"`
+	IDToken     string `json:"id_token,omitempty"`
+}
+
+// NewProvider initializes a signing key and in-memory state.
+func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, error) {
 	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
 	if issuer == "" {
 		return nil, fmt.Errorf("issuer must not be empty")
+	}
+
+	devClientID = strings.TrimSpace(devClientID)
+	if devClientID == "" {
+		devClientID = DefaultDevClientID
+	}
+	devClientRedirect = strings.TrimSpace(devClientRedirect)
+	if devClientRedirect == "" {
+		devClientRedirect = DefaultDevClientRedirect
+	}
+	if _, err := url.ParseRequestURI(devClientRedirect); err != nil {
+		return nil, fmt.Errorf("invalid dev client redirect uri: %w", err)
 	}
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -59,12 +137,12 @@ func NewProvider(issuer string) (*Provider, error) {
 	pub := key.PublicKey
 	n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
 	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
-
 	hash := sha256.Sum256(pub.N.Bytes())
 	kid := hex.EncodeToString(hash[:8])
 
 	return &Provider{
-		issuer: issuer,
+		issuer:     issuer,
+		privateKey: key,
 		jwks: jwks{Keys: []jwk{{
 			Kty: "RSA",
 			Use: "sig",
@@ -73,6 +151,15 @@ func NewProvider(issuer string) (*Provider, error) {
 			N:   n,
 			E:   e,
 		}}},
+		clients: map[string]*client{
+			devClientID: {
+				ID: devClientID,
+				RedirectURIs: map[string]struct{}{
+					devClientRedirect: {},
+				},
+			},
+		},
+		authCodes: map[string]*authorizationCode{},
 	}, nil
 }
 
@@ -87,7 +174,6 @@ func (p *Provider) Discovery() discoveryDocument {
 		},
 		GrantTypesSupported: []string{
 			"authorization_code",
-			"refresh_token",
 		},
 		CodeChallengeMethodsSupported: []string{
 			"S256",
@@ -102,15 +188,205 @@ func (p *Provider) Discovery() discoveryDocument {
 			"openid",
 			"profile",
 			"email",
-			"offline_access",
 		},
 		TokenEndpointAuthMethodsSupported: []string{
-			"client_secret_basic",
-			"private_key_jwt",
+			"none",
 		},
 	}
 }
 
 func (p *Provider) JWKS() jwks {
 	return p.jwks
+}
+
+func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) (string, error) {
+	responseType = strings.TrimSpace(responseType)
+	clientID = strings.TrimSpace(clientID)
+	redirectURI = strings.TrimSpace(redirectURI)
+	codeChallenge = strings.TrimSpace(codeChallenge)
+	codeChallengeMethod = strings.TrimSpace(codeChallengeMethod)
+	scope = strings.TrimSpace(scope)
+
+	if responseType != "code" {
+		return "", &OAuthError{Code: "unsupported_response_type", Description: "response_type must be code", Status: 400}
+	}
+	if clientID == "" {
+		return "", &OAuthError{Code: "invalid_request", Description: "client_id is required", Status: 400}
+	}
+	if redirectURI == "" {
+		return "", &OAuthError{Code: "invalid_request", Description: "redirect_uri is required", Status: 400}
+	}
+	if codeChallenge == "" {
+		return "", &OAuthError{Code: "invalid_request", Description: "code_challenge is required", Status: 400}
+	}
+	if codeChallengeMethod != "S256" {
+		return "", &OAuthError{Code: "invalid_request", Description: "code_challenge_method must be S256", Status: 400}
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	c, ok := p.clients[clientID]
+	if !ok {
+		return "", &OAuthError{Code: "unauthorized_client", Description: "unknown client_id", Status: 400}
+	}
+	if _, ok := c.RedirectURIs[redirectURI]; !ok {
+		return "", &OAuthError{Code: "invalid_request", Description: "redirect_uri is not allowed", Status: 400}
+	}
+
+	code, err := randomToken(32)
+	if err != nil {
+		return "", fmt.Errorf("generate authorization code: %w", err)
+	}
+	if scope == "" {
+		scope = "openid"
+	}
+
+	p.authCodes[code] = &authorizationCode{
+		Code:          code,
+		ClientID:      clientID,
+		RedirectURI:   redirectURI,
+		Scope:         scope,
+		State:         state,
+		CodeChallenge: codeChallenge,
+		Subject:       "user-0001",
+		ExpiresAt:     time.Now().UTC().Add(authCodeTTL),
+	}
+
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		return "", &OAuthError{Code: "invalid_request", Description: "redirect_uri is invalid", Status: 400}
+	}
+	q := u.Query()
+	q.Set("code", code)
+	if state != "" {
+		q.Set("state", state)
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clientID, codeVerifier string) (*TokenResponse, error) {
+	grantType = strings.TrimSpace(grantType)
+	code = strings.TrimSpace(code)
+	redirectURI = strings.TrimSpace(redirectURI)
+	clientID = strings.TrimSpace(clientID)
+	codeVerifier = strings.TrimSpace(codeVerifier)
+
+	if grantType != "authorization_code" {
+		return nil, &OAuthError{Code: "unsupported_grant_type", Description: "grant_type must be authorization_code", Status: 400}
+	}
+	if code == "" || redirectURI == "" || clientID == "" || codeVerifier == "" {
+		return nil, &OAuthError{Code: "invalid_request", Description: "code, redirect_uri, client_id and code_verifier are required", Status: 400}
+	}
+
+	p.mu.Lock()
+	entry, ok := p.authCodes[code]
+	if !ok {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "authorization code is invalid", Status: 400}
+	}
+	if entry.Used {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "authorization code was already used", Status: 400}
+	}
+	if time.Now().UTC().After(entry.ExpiresAt) {
+		delete(p.authCodes, code)
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "authorization code has expired", Status: 400}
+	}
+	if entry.ClientID != clientID {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "client_id mismatch", Status: 400}
+	}
+	if entry.RedirectURI != redirectURI {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "redirect_uri mismatch", Status: 400}
+	}
+
+	sum := sha256.Sum256([]byte(codeVerifier))
+	expectedChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	if subtle.ConstantTimeCompare([]byte(expectedChallenge), []byte(entry.CodeChallenge)) != 1 {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_grant", Description: "code_verifier mismatch", Status: 400}
+	}
+
+	entry.Used = true
+	p.mu.Unlock()
+
+	accessToken, err := randomToken(32)
+	if err != nil {
+		return nil, fmt.Errorf("generate access token: %w", err)
+	}
+
+	resp := &TokenResponse{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   accessTokenTTLSeconds,
+		Scope:       entry.Scope,
+	}
+
+	if hasScope(entry.Scope, "openid") {
+		idToken, err := p.signIDToken(entry.Subject, entry.ClientID)
+		if err != nil {
+			return nil, fmt.Errorf("sign id token: %w", err)
+		}
+		resp.IDToken = idToken
+	}
+
+	return resp, nil
+}
+
+func (p *Provider) signIDToken(subject, audience string) (string, error) {
+	now := time.Now().UTC()
+	header := map[string]string{
+		"alg": "RS256",
+		"typ": "JWT",
+		"kid": p.jwks.Keys[0].Kid,
+	}
+	claims := map[string]any{
+		"iss": p.issuer,
+		"sub": subject,
+		"aud": audience,
+		"iat": now.Unix(),
+		"exp": now.Add(time.Hour).Unix(),
+	}
+
+	headerBytes, err := json.Marshal(header)
+	if err != nil {
+		return "", fmt.Errorf("marshal jwt header: %w", err)
+	}
+	claimsBytes, err := json.Marshal(claims)
+	if err != nil {
+		return "", fmt.Errorf("marshal jwt claims: %w", err)
+	}
+
+	headerEnc := base64.RawURLEncoding.EncodeToString(headerBytes)
+	claimsEnc := base64.RawURLEncoding.EncodeToString(claimsBytes)
+	signingInput := headerEnc + "." + claimsEnc
+
+	digest := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, p.privateKey, crypto.SHA256, digest[:])
+	if err != nil {
+		return "", fmt.Errorf("sign jwt: %w", err)
+	}
+
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func randomToken(size int) (string, error) {
+	b := make([]byte, size)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func hasScope(scope, target string) bool {
+	for _, s := range strings.Fields(scope) {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }

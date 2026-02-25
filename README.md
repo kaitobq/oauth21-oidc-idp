@@ -25,9 +25,8 @@ Dependency direction is fixed as `handler -> application -> domain` and `infra -
 - default enabled:
   - OIDC Discovery: `/.well-known/openid-configuration`
   - JWKS: `/oauth2/jwks`
-- not implemented yet (placeholder):
-  - `/oauth2/authorize`
-  - `/oauth2/token`
+  - Authorization Endpoint (Auth Code + PKCE): `/oauth2/authorize`
+  - Token Endpoint (Auth Code exchange): `/oauth2/token`
 - optional:
   - `organization` API (`ENABLE_ORGANIZATION_API=true` のときのみ有効)
 
@@ -62,12 +61,25 @@ scripts/        # Build and generation scripts
 ## Getting Started
 
 ```bash
+# one-time bootstrap
+make bootstrap
+
 # Run backend
 make run-backend
 
 # Validate core endpoints
 BASE_URL=http://localhost:8080 make harness-smoke
+
+# Validate auth code + PKCE flow
+BASE_URL=http://localhost:8080 make harness-auth-code-pkce
 ```
+
+### Local Dev Client
+
+`/oauth2/authorize` と `/oauth2/token` は開発用の公開クライアント1件を事前登録しています。
+
+- `OIDC_DEV_CLIENT_ID`（default: `local-dev-client`）
+- `OIDC_DEV_REDIRECT_URI`（default: `http://localhost:3000/callback`）
 
 ## Development
 

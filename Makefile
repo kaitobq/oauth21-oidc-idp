@@ -1,11 +1,15 @@
-.PHONY: bootstrap harness-smoke setup gen lint-proto check test run-backend run-frontend clean
+.PHONY: bootstrap harness-smoke harness-auth-code-pkce setup gen lint-proto check test run-backend run-frontend clean
 
 bootstrap:
 	chmod +x scripts/harness_smoke.sh
+	chmod +x scripts/harness_auth_code_pkce.sh
 	@echo "bootstrap complete"
 
 harness-smoke:
 	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_smoke.sh
+
+harness-auth-code-pkce:
+	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_auth_code_pkce.sh
 
 # ── Setup ──────────────────────────────────────────────
 setup: setup-backend setup-frontend setup-proto

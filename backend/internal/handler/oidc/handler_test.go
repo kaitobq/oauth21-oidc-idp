@@ -1,18 +1,29 @@
 package oidc
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	core "github.com/kaitobq/oauth21-oidc-idp/backend/internal/oidc"
 )
 
+const (
+	testIssuer       = "http://localhost:8080"
+	testClientID     = "test-client"
+	testRedirectURI  = "http://localhost:3000/callback"
+	testCodeVerifier = "this-is-a-long-enough-code-verifier-for-handler-tests-123456789"
+)
+
 func TestDiscoveryEndpoint(t *testing.T) {
 	t.Parallel()
 
-	provider, err := core.NewProvider("http://localhost:8080")
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
@@ -41,10 +52,10 @@ func TestDiscoveryEndpoint(t *testing.T) {
 	}
 }
 
-func TestJWKSAndPlaceholders(t *testing.T) {
+func TestAuthorizeAndTokenFlow(t *testing.T) {
 	t.Parallel()
 
-	provider, err := core.NewProvider("http://localhost:8080")
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
@@ -60,17 +71,85 @@ func TestJWKSAndPlaceholders(t *testing.T) {
 		t.Fatalf("expected 200 for jwks, got %d", jwksRec.Code)
 	}
 
-	authReq := httptest.NewRequest(http.MethodGet, "/oauth2/authorize", nil)
+	codeChallenge := pkceS256(testCodeVerifier)
+	authReq := httptest.NewRequest(
+		http.MethodGet,
+		"/oauth2/authorize?response_type=code&client_id="+url.QueryEscape(testClientID)+
+			"&redirect_uri="+url.QueryEscape(testRedirectURI)+
+			"&scope="+url.QueryEscape("openid profile")+
+			"&state="+url.QueryEscape("handler-state")+
+			"&code_challenge="+url.QueryEscape(codeChallenge)+
+			"&code_challenge_method=S256",
+		nil,
+	)
 	authRec := httptest.NewRecorder()
 	mux.ServeHTTP(authRec, authReq)
-	if authRec.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501 for authorize, got %d", authRec.Code)
+	if authRec.Code != http.StatusFound {
+		t.Fatalf("expected 302 for authorize, got %d", authRec.Code)
+	}
+	location := authRec.Header().Get("Location")
+	if location == "" {
+		t.Fatalf("authorize response must include Location header")
+	}
+	code := queryParam(t, location, "code")
+	if code == "" {
+		t.Fatalf("authorize redirect must include code")
 	}
 
-	tokenReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", nil)
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {testRedirectURI},
+		"client_id":     {testClientID},
+		"code_verifier": {testCodeVerifier},
+	}
+	tokenReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	tokenRec := httptest.NewRecorder()
 	mux.ServeHTTP(tokenRec, tokenReq)
-	if tokenRec.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501 for token, got %d", tokenRec.Code)
+	if tokenRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for token, got %d", tokenRec.Code)
 	}
+
+	var tokenResp map[string]any
+	if err := json.Unmarshal(tokenRec.Body.Bytes(), &tokenResp); err != nil {
+		t.Fatalf("invalid token json: %v", err)
+	}
+	if tokenResp["access_token"] == "" {
+		t.Fatalf("access_token must not be empty")
+	}
+	if tokenResp["id_token"] == "" {
+		t.Fatalf("id_token must not be empty for openid scope")
+	}
+
+	reuseReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+	reuseReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reuseRec := httptest.NewRecorder()
+	mux.ServeHTTP(reuseRec, reuseReq)
+	if reuseRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for reused code, got %d", reuseRec.Code)
+	}
+
+	var reuseErr map[string]string
+	if err := json.Unmarshal(reuseRec.Body.Bytes(), &reuseErr); err != nil {
+		t.Fatalf("invalid reuse error json: %v", err)
+	}
+	if reuseErr["error"] != "invalid_grant" {
+		t.Fatalf("expected invalid_grant, got %s", reuseErr["error"])
+	}
+}
+
+func queryParam(t *testing.T, rawURL, name string) string {
+	t.Helper()
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse url error: %v", err)
+	}
+	return parsed.Query().Get(name)
+}
+
+func pkceS256(verifier string) string {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }

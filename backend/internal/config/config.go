@@ -11,6 +11,8 @@ type Config struct {
 	Port                  string
 	Issuer                string
 	EnableOrganizationAPI bool
+	DevClientID           string
+	DevClientRedirectURI  string
 
 	DBHost     string
 	DBPort     string
@@ -25,6 +27,8 @@ func Load() *Config {
 		Port:                  getEnv("PORT", "8080"),
 		Issuer:                getEnv("ISSUER", "http://localhost:8080"),
 		EnableOrganizationAPI: getEnvBool("ENABLE_ORGANIZATION_API", false),
+		DevClientID:           getEnv("OIDC_DEV_CLIENT_ID", "local-dev-client"),
+		DevClientRedirectURI:  getEnv("OIDC_DEV_REDIRECT_URI", "http://localhost:3000/callback"),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),
