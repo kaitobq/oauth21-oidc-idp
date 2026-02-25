@@ -1,4 +1,4 @@
-.PHONY: bootstrap harness-smoke harness-auth-code-pkce harness-refresh-rotation harness-id-token-claims harness-client-secret-basic setup gen lint-proto check test run-backend run-frontend clean
+.PHONY: bootstrap harness-smoke harness-auth-code-pkce harness-refresh-rotation harness-id-token-claims harness-client-secret-basic harness-private-key-jwt setup gen lint-proto check test run-backend run-frontend clean
 
 bootstrap:
 	chmod +x scripts/harness_smoke.sh
@@ -6,6 +6,7 @@ bootstrap:
 	chmod +x scripts/harness_refresh_rotation.sh
 	chmod +x scripts/harness_id_token_claims.sh
 	chmod +x scripts/harness_client_secret_basic.sh
+	chmod +x scripts/harness_private_key_jwt.sh
 	@echo "bootstrap complete"
 
 harness-smoke:
@@ -22,6 +23,9 @@ harness-id-token-claims:
 
 harness-client-secret-basic:
 	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_client_secret_basic.sh
+
+harness-private-key-jwt:
+	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_private_key_jwt.sh
 
 # ── Setup ──────────────────────────────────────────────
 setup: setup-backend setup-frontend setup-proto

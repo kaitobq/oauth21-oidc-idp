@@ -9,6 +9,7 @@ IDP 実装に対して継続的に仕様適合を確認するための検証資�
 - `../scripts/harness_refresh_rotation.sh`: refresh token rotation の最小フロー検証
 - `../scripts/harness_id_token_claims.sh`: id_token claim（nonce/auth_time/at_hash/azp/sid/acr/amr）の検証
 - `../scripts/harness_client_secret_basic.sh`: confidential client の `client_secret_basic` 認証検証
+- `../scripts/harness_private_key_jwt.sh`: confidential client の `private_key_jwt` 認証検証
 
 ## Run
 ```bash
@@ -17,6 +18,7 @@ BASE_URL=http://localhost:8080 ../scripts/harness_auth_code_pkce.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_refresh_rotation.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_id_token_claims.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_client_secret_basic.sh
+BASE_URL=http://localhost:8080 ../scripts/harness_private_key_jwt.sh
 ```
 
 ## Rules

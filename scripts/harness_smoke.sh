@@ -90,6 +90,12 @@ else
   fail "token_endpoint_auth_methods_supported must include client_secret_basic"
 fi
 
+if json_array_contains "$discovery_body" "token_endpoint_auth_methods_supported" "private_key_jwt"; then
+  pass "token_endpoint_auth_methods_supported includes private_key_jwt"
+else
+  fail "token_endpoint_auth_methods_supported must include private_key_jwt"
+fi
+
 if json_array_contains "$discovery_body" "grant_types_supported" "authorization_code"; then
   pass "grant_types_supported includes authorization_code"
 else

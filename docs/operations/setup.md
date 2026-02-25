@@ -27,12 +27,13 @@
    BASE_URL=http://localhost:8080 make harness-refresh-rotation
    BASE_URL=http://localhost:8080 make harness-id-token-claims
    BASE_URL=http://localhost:8080 make harness-client-secret-basic
+   BASE_URL=http://localhost:8080 make harness-private-key-jwt
    ```
 
 ## Verification Checklist
 - discovery endpoint が 200 を返す
 - discovery に `issuer`, `jwks_uri`, `authorization_endpoint`, `token_endpoint` が含まれる
-- discovery の `token_endpoint_auth_methods_supported` に `none` / `client_secret_basic` が含まれる
+- discovery の `token_endpoint_auth_methods_supported` に `none` / `client_secret_basic` / `private_key_jwt` が含まれる
 - JWKS endpoint が `keys` 配列を返す
 - `grant_types_supported` に `password` が含まれない
 - `authorize` が 302 で `code` を返す
@@ -48,6 +49,8 @@
 - `id_token` が `acr` / `amr` を含む
 - confidential client が `client_secret_basic` で token 交換できる
 - 不正な Basic 認証が `401` / `invalid_client` で拒否される
+- confidential client が `private_key_jwt` で token 交換できる
+- 不正な client assertion が `401` / `invalid_client` で拒否される
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール

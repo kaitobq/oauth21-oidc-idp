@@ -6,9 +6,11 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net/url"
@@ -23,12 +25,29 @@ const (
 	DefaultConfidentialClientID     = "local-confidential-client"
 	DefaultConfidentialClientSecret = "local-confidential-secret"
 	DefaultConfidentialRedirect     = "http://localhost:3000/callback"
+	DefaultPrivateJWTClientID       = "local-private-jwt-client"
+	DefaultPrivateJWTRedirect       = "http://localhost:3000/callback"
+	TokenEndpointAuthMethodNone     = "none"
+	TokenEndpointAuthMethodBasic    = "client_secret_basic"
+	TokenEndpointAuthMethodPrivate  = "private_key_jwt"
+	ClientAssertionTypeJWTBearer    = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 	defaultACRValue                 = "urn:example:loa:1"
 	defaultAMRMethod                = "pwd"
 	authCodeTTL                     = 5 * time.Minute
 	accessTokenTTLSeconds           = int64(3600)
 	refreshTokenTTL                 = 30 * 24 * time.Hour
 )
+
+const defaultPrivateJWTClientPublicKeyPEM = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtKjQruvsBR6Clt73Vs/J
+rvHm2O7QP8/bpM+G+VDqpAte/KYcw+bzA+wzm/751jdUocV+Ze4v9ywaPHTA9kZ4
+pp4fBjNXc9rlKGZvH0SUhzSYBeKk1Yjgnn2mWbNs8JyvGWdC65iuEs7uGnHStjVP
+7Zd5YdyHZueVk7WlsG0IRxsGxAlC2T0R8HpXKz8B/hS0dyM9UtALlUq24azgt44X
+ZE+EGUxxrkW0E/qjJSvRLkEpbANjxodBiqkqz7eRuhiFFw+cu4bPP7jHD/i4HIE0
+Cod0rUl6BTKVTmc2ybbHicjsLqwA/zG8jBP3h9lkraSgArmbiyjXtLeKVrBFgOFu
+TwIDAQAB
+-----END PUBLIC KEY-----
+`
 
 // OAuthError maps internal validation failures to OAuth2-compatible responses.
 type OAuthError struct {
@@ -69,6 +88,28 @@ type client struct {
 	RedirectURIs            map[string]struct{}
 	TokenEndpointAuthMethod string
 	ClientSecret            string
+	JWTSigningPublicKey     *rsa.PublicKey
+}
+
+type TokenClientAuthentication struct {
+	ClientID            string
+	AuthMethod          string
+	ClientSecret        string
+	ClientAssertionType string
+	ClientAssertion     string
+}
+
+type tokenAssertionHeader struct {
+	Alg string `json:"alg"`
+}
+
+type tokenAssertionClaims struct {
+	Iss string `json:"iss"`
+	Sub string `json:"sub"`
+	Aud any    `json:"aud"`
+	Exp int64  `json:"exp"`
+	Iat int64  `json:"iat,omitempty"`
+	Nbf int64  `json:"nbf,omitempty"`
 }
 
 type authorizationCode struct {
@@ -183,7 +224,7 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 		clients: map[string]*client{
 			devClientID: {
 				ID:                      devClientID,
-				TokenEndpointAuthMethod: "none",
+				TokenEndpointAuthMethod: TokenEndpointAuthMethodNone,
 				RedirectURIs: map[string]struct{}{
 					devClientRedirect: {},
 				},
@@ -199,6 +240,13 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 		DefaultConfidentialRedirect,
 	); err != nil {
 		return nil, fmt.Errorf("register default confidential client: %w", err)
+	}
+	if err := provider.RegisterPrivateJWTClient(
+		DefaultPrivateJWTClientID,
+		DefaultPrivateJWTRedirect,
+		defaultPrivateJWTClientPublicKeyPEM,
+	); err != nil {
+		return nil, fmt.Errorf("register default private_key_jwt client: %w", err)
 	}
 
 	return provider, nil
@@ -236,8 +284,9 @@ func (p *Provider) Discovery() discoveryDocument {
 			"offline_access",
 		},
 		TokenEndpointAuthMethodsSupported: []string{
-			"none",
-			"client_secret_basic",
+			TokenEndpointAuthMethodNone,
+			TokenEndpointAuthMethodBasic,
+			TokenEndpointAuthMethodPrivate,
 		},
 	}
 }
@@ -269,7 +318,7 @@ func (p *Provider) RegisterConfidentialClient(clientID, clientSecret, redirectUR
 
 	p.clients[clientID] = &client{
 		ID:                      clientID,
-		TokenEndpointAuthMethod: "client_secret_basic",
+		TokenEndpointAuthMethod: TokenEndpointAuthMethodBasic,
 		ClientSecret:            clientSecret,
 		RedirectURIs: map[string]struct{}{
 			redirectURI: {},
@@ -278,11 +327,50 @@ func (p *Provider) RegisterConfidentialClient(clientID, clientSecret, redirectUR
 	return nil
 }
 
-func (p *Provider) AuthenticateTokenClient(clientID, clientSecret, authMethod string) error {
+func (p *Provider) RegisterPrivateJWTClient(clientID, redirectURI, publicKeyPEM string) error {
 	clientID = strings.TrimSpace(clientID)
-	authMethod = strings.TrimSpace(authMethod)
+	redirectURI = strings.TrimSpace(redirectURI)
+	publicKeyPEM = strings.TrimSpace(publicKeyPEM)
+
+	if clientID == "" {
+		return fmt.Errorf("private_key_jwt client_id must not be empty")
+	}
+	if redirectURI == "" {
+		return fmt.Errorf("private_key_jwt redirect_uri must not be empty")
+	}
+	if publicKeyPEM == "" {
+		return fmt.Errorf("private_key_jwt public key must not be empty")
+	}
+	if _, err := url.ParseRequestURI(redirectURI); err != nil {
+		return fmt.Errorf("invalid private_key_jwt client redirect uri: %w", err)
+	}
+	publicKey, err := parseRSAPublicKeyPEM(publicKeyPEM)
+	if err != nil {
+		return fmt.Errorf("parse private_key_jwt public key: %w", err)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.clients[clientID] = &client{
+		ID:                      clientID,
+		TokenEndpointAuthMethod: TokenEndpointAuthMethodPrivate,
+		JWTSigningPublicKey:     publicKey,
+		RedirectURIs: map[string]struct{}{
+			redirectURI: {},
+		},
+	}
+	return nil
+}
+
+func (p *Provider) AuthenticateTokenClient(auth TokenClientAuthentication) error {
+	clientID := strings.TrimSpace(auth.ClientID)
+	authMethod := strings.TrimSpace(auth.AuthMethod)
+	clientSecret := strings.TrimSpace(auth.ClientSecret)
+	clientAssertionType := strings.TrimSpace(auth.ClientAssertionType)
+	clientAssertion := strings.TrimSpace(auth.ClientAssertion)
 	if authMethod == "" {
-		authMethod = "none"
+		authMethod = TokenEndpointAuthMethodNone
 	}
 	if clientID == "" {
 		return &OAuthError{Code: "invalid_request", Description: "client_id is required", Status: 400}
@@ -297,21 +385,60 @@ func (p *Provider) AuthenticateTokenClient(clientID, clientSecret, authMethod st
 
 	requiredMethod := c.TokenEndpointAuthMethod
 	if requiredMethod == "" {
-		requiredMethod = "none"
+		requiredMethod = TokenEndpointAuthMethodNone
 	}
 	if requiredMethod != authMethod {
 		return &OAuthError{Code: "invalid_client", Description: "client authentication method is invalid", Status: 401}
 	}
 
 	switch requiredMethod {
-	case "none":
+	case TokenEndpointAuthMethodNone:
 		return nil
-	case "client_secret_basic":
+	case TokenEndpointAuthMethodBasic:
 		if clientSecret == "" {
 			return &OAuthError{Code: "invalid_client", Description: "client_secret is required", Status: 401}
 		}
 		if subtle.ConstantTimeCompare([]byte(clientSecret), []byte(c.ClientSecret)) != 1 {
 			return &OAuthError{Code: "invalid_client", Description: "client authentication failed", Status: 401}
+		}
+		return nil
+	case TokenEndpointAuthMethodPrivate:
+		if clientAssertionType != ClientAssertionTypeJWTBearer {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion_type is invalid", Status: 401}
+		}
+		if clientAssertion == "" {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion is required", Status: 401}
+		}
+		if c.JWTSigningPublicKey == nil {
+			return &OAuthError{Code: "server_error", Description: "private_key_jwt key is not configured", Status: 500}
+		}
+		header, claims, signingInput, signature, err := parseTokenAssertion(clientAssertion)
+		if err != nil {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion is invalid", Status: 401}
+		}
+		if header.Alg != "RS256" {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion alg must be RS256", Status: 401}
+		}
+		digest := sha256.Sum256([]byte(signingInput))
+		if err := rsa.VerifyPKCS1v15(c.JWTSigningPublicKey, crypto.SHA256, digest[:], signature); err != nil {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion signature verification failed", Status: 401}
+		}
+		if claims.Iss != clientID || claims.Sub != clientID {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion iss/sub mismatch", Status: 401}
+		}
+		tokenEndpointAudience := p.issuer + "/oauth2/token"
+		if !jwtAudienceContains(claims.Aud, tokenEndpointAudience) {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion aud is invalid", Status: 401}
+		}
+		now := time.Now().UTC().Unix()
+		if claims.Exp == 0 || now >= claims.Exp {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion has expired", Status: 401}
+		}
+		if claims.Nbf != 0 && now < claims.Nbf {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion is not yet valid", Status: 401}
+		}
+		if claims.Iat != 0 && claims.Iat > now+60 {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion iat is in the future", Status: 401}
 		}
 		return nil
 	default:
@@ -647,6 +774,67 @@ func (p *Provider) signIDToken(subject, audience, nonce, acr string, amr []strin
 	}
 
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func parseRSAPublicKeyPEM(publicKeyPEM string) (*rsa.PublicKey, error) {
+	block, _ := pem.Decode([]byte(publicKeyPEM))
+	if block == nil {
+		return nil, fmt.Errorf("pem decode failed")
+	}
+	if parsed, err := x509.ParsePKIXPublicKey(block.Bytes); err == nil {
+		if publicKey, ok := parsed.(*rsa.PublicKey); ok {
+			return publicKey, nil
+		}
+		return nil, fmt.Errorf("public key is not rsa")
+	}
+	if publicKey, err := x509.ParsePKCS1PublicKey(block.Bytes); err == nil {
+		return publicKey, nil
+	}
+	return nil, fmt.Errorf("unsupported rsa public key format")
+}
+
+func parseTokenAssertion(assertion string) (tokenAssertionHeader, tokenAssertionClaims, string, []byte, error) {
+	var (
+		header tokenAssertionHeader
+		claims tokenAssertionClaims
+	)
+	parts := strings.Split(assertion, ".")
+	if len(parts) != 3 {
+		return header, claims, "", nil, fmt.Errorf("assertion must be jwt")
+	}
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return header, claims, "", nil, fmt.Errorf("decode header: %w", err)
+	}
+	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return header, claims, "", nil, fmt.Errorf("decode claims: %w", err)
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return header, claims, "", nil, fmt.Errorf("decode signature: %w", err)
+	}
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		return header, claims, "", nil, fmt.Errorf("unmarshal header: %w", err)
+	}
+	if err := json.Unmarshal(claimsBytes, &claims); err != nil {
+		return header, claims, "", nil, fmt.Errorf("unmarshal claims: %w", err)
+	}
+	return header, claims, parts[0] + "." + parts[1], signature, nil
+}
+
+func jwtAudienceContains(audClaim any, expectedAudience string) bool {
+	switch v := audClaim.(type) {
+	case string:
+		return v == expectedAudience
+	case []any:
+		for _, candidate := range v {
+			if s, ok := candidate.(string); ok && s == expectedAudience {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // accessTokenHash computes OIDC at_hash for RS256: left-most half of SHA-256(access_token), base64url.
