@@ -43,7 +43,7 @@ func (h *Handler) CreateOrganization(
 		DisplayName: displayName,
 	})
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(mapAppErrorCode(err), err)
 	}
 
 	return connect.NewResponse(&organizationv1.CreateOrganizationResponse{
@@ -61,7 +61,7 @@ func (h *Handler) GetOrganization(
 	}
 	dto, err := h.facade.Get(ctx, actorFromHeader(req.Header()), id)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(mapAppErrorCode(err), err)
 	}
 
 	return connect.NewResponse(&organizationv1.GetOrganizationResponse{
@@ -78,7 +78,7 @@ func (h *Handler) ListOrganizations(
 	}
 	out, err := h.facade.List(ctx, actorFromHeader(req.Header()), int(req.Msg.PageSize), req.Msg.PageToken)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(mapAppErrorCode(err), err)
 	}
 
 	orgs := make([]*organizationv1.Organization, len(out.Organizations))
@@ -94,14 +94,30 @@ func (h *Handler) ListOrganizations(
 
 func actorFromHeader(header map[string][]string) *app.Actor {
 	sub := ""
+	scopeValue := ""
 	for k, values := range header {
 		if strings.EqualFold(k, "x-actor-sub") && len(values) > 0 {
 			sub = strings.TrimSpace(values[0])
-			break
+		}
+		if (strings.EqualFold(k, "x-actor-scopes") || strings.EqualFold(k, "x-actor-scope")) && len(values) > 0 {
+			scopeValue = strings.TrimSpace(values[0])
 		}
 	}
-	if sub == "" {
-		sub = "anonymous"
+
+	scopes := []string{}
+	if scopeValue != "" {
+		scopes = strings.Fields(scopeValue)
 	}
-	return &app.Actor{Subject: sub}
+	return app.NewActor(sub, scopes)
+}
+
+func mapAppErrorCode(err error) connect.Code {
+	switch {
+	case errors.Is(err, app.ErrUnauthenticated):
+		return connect.CodeUnauthenticated
+	case errors.Is(err, app.ErrPermissionDenied):
+		return connect.CodePermissionDenied
+	default:
+		return connect.CodeInternal
+	}
 }

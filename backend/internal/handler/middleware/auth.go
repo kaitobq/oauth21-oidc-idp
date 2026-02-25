@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,6 +35,13 @@ type authError struct {
 	Code        string
 	Description string
 	BearerError string
+}
+
+var adminJWTReplayGuard = struct {
+	mu      sync.Mutex
+	entries map[string]int64
+}{
+	entries: map[string]int64{},
 }
 
 // Auth keeps backward compatibility. Use AdminAuth for validated bearer authentication.
@@ -269,6 +278,16 @@ func validateJWTToken(token, secret, issuer, audience, requiredScope string) *au
 			BearerError: "invalid_token",
 		}
 	}
+	jti, ok := claims["jti"].(string)
+	jti = strings.TrimSpace(jti)
+	if !ok || jti == "" {
+		return &authError{
+			Status:      http.StatusUnauthorized,
+			Code:        "unauthorized",
+			Description: "admin jwt jti is required",
+			BearerError: "invalid_token",
+		}
+	}
 
 	issuer = strings.TrimSpace(issuer)
 	if issuer != "" {
@@ -300,6 +319,14 @@ func validateJWTToken(token, secret, issuer, audience, requiredScope string) *au
 			Code:        "forbidden",
 			Description: "admin jwt scope is insufficient",
 			BearerError: "insufficient_scope",
+		}
+	}
+	if adminJWTReplayDetected(claims, jti, exp, now) {
+		return &authError{
+			Status:      http.StatusUnauthorized,
+			Code:        "unauthorized",
+			Description: "admin jwt has been replayed",
+			BearerError: "invalid_token",
 		}
 	}
 
@@ -358,6 +385,57 @@ func scopeContains(claims map[string]any, target string) bool {
 		}
 	}
 	return false
+}
+
+func adminJWTReplayDetected(claims map[string]any, jti string, exp, now int64) bool {
+	adminJWTReplayGuard.mu.Lock()
+	defer adminJWTReplayGuard.mu.Unlock()
+
+	for key, expiresAt := range adminJWTReplayGuard.entries {
+		if expiresAt <= now {
+			delete(adminJWTReplayGuard.entries, key)
+		}
+	}
+
+	cacheKey := strings.Join([]string{
+		claimString(claims, "iss"),
+		audienceCacheKey(claims["aud"]),
+		jti,
+	}, "|")
+	if _, exists := adminJWTReplayGuard.entries[cacheKey]; exists {
+		return true
+	}
+	adminJWTReplayGuard.entries[cacheKey] = exp
+	return false
+}
+
+func claimString(claims map[string]any, key string) string {
+	if claims == nil {
+		return ""
+	}
+	v, ok := claims[key].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(v)
+}
+
+func audienceCacheKey(v any) string {
+	switch aud := v.(type) {
+	case string:
+		return strings.TrimSpace(aud)
+	case []any:
+		values := make([]string, 0, len(aud))
+		for _, candidate := range aud {
+			if s, ok := candidate.(string); ok && strings.TrimSpace(s) != "" {
+				values = append(values, strings.TrimSpace(s))
+			}
+		}
+		sort.Strings(values)
+		return strings.Join(values, ",")
+	default:
+		return ""
+	}
 }
 
 func writeAuthError(w http.ResponseWriter, err *authError) {

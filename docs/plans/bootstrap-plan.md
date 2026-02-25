@@ -19,6 +19,10 @@
 - 2026-02-25: Phase 2 進行中（private_key_jwt assertion replay protection 追加）
 - 2026-02-25: Phase 2 進行中（authorize/token/admin API の監査ログ追加）
 - 2026-02-25: Phase 2 進行中（管理 API 認可を JWT + scope へ拡張）
+- 2026-02-25: Phase 2 進行中（OIDC client registry の file 永続化を追加）
+- 2026-02-25: Phase 2 進行中（管理 API JWT の `jti` リプレイ防止を追加）
+- 2026-02-25: Phase 2 進行中（監査ログの連続失敗検知 `audit_alert` を追加）
+- 2026-02-25: Phase 2 進行中（organization API の scope 認可を追加）
 
 ## Implementation Plan
 
@@ -44,6 +48,6 @@
 - Gate C: 主要フロー変更時に harness シナリオが更新される
 
 ## Next Actions
-1. クライアント登録を静的1件から永続化モデルへ移行
-2. client 鍵ローテーションの管理者認可強化（token運用/権限分離）を導入
-3. 監査ログと異常検知を段階導入
+1. organization API の認可方式をヘッダ暫定から正式な管理者トークン検証へ移行
+2. OIDCエンドユーザー認証（ログイン/同意/アカウント管理）を導入
+3. client registry 永続化先を MySQL/KV へ拡張しマルチインスタンス運用へ対応

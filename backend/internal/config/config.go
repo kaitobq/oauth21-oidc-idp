@@ -21,6 +21,7 @@ type Config struct {
 	PrivateJWTRedirectURI       string
 	PrivateJWTPublicKeyPEM      string
 	PrivateJWTPublicKeyPath     string
+	ClientRegistryPath          string
 	AdminAuthMode               string
 	AdminJWTSecret              string
 	AdminJWTIssuer              string
@@ -53,6 +54,7 @@ func Load() *Config {
 		PrivateJWTRedirectURI:       getEnv("OIDC_PRIVATE_JWT_REDIRECT_URI", "http://localhost:3000/callback"),
 		PrivateJWTPublicKeyPEM:      getEnv("OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM", ""),
 		PrivateJWTPublicKeyPath:     getEnv("OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH", "config/keys/local/private_jwt_client_public.pem"),
+		ClientRegistryPath:          getEnv("OIDC_CLIENT_REGISTRY_PATH", ""),
 		AdminAuthMode:               strings.TrimSpace(strings.ToLower(getEnv("OIDC_ADMIN_AUTH_MODE", "static"))),
 		AdminJWTSecret:              getEnv("OIDC_ADMIN_JWT_HS256_SECRET", ""),
 		AdminJWTIssuer:              getEnv("OIDC_ADMIN_JWT_ISS", ""),

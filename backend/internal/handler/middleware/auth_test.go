@@ -104,6 +104,7 @@ func TestAdminAuthJWT(t *testing.T) {
 			"iss":   issuer,
 			"aud":   audience,
 			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"jti":   uniqueJTI("valid"),
 			"scope": ScopeRotateSigningKey + " " + ScopeRotatePrivateJWTClientKey,
 		})
 		req := httptest.NewRequest(http.MethodPost, "/admin", nil)
@@ -120,6 +121,7 @@ func TestAdminAuthJWT(t *testing.T) {
 			"iss":   issuer,
 			"aud":   audience,
 			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"jti":   uniqueJTI("insufficient-scope"),
 			"scope": ScopeRotatePrivateJWTClientKey,
 		})
 		req := httptest.NewRequest(http.MethodPost, "/admin", nil)
@@ -139,6 +141,7 @@ func TestAdminAuthJWT(t *testing.T) {
 			"iss":   issuer,
 			"aud":   audience,
 			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"jti":   uniqueJTI("invalid-signature"),
 			"scope": ScopeRotateSigningKey,
 		})
 		req := httptest.NewRequest(http.MethodPost, "/admin", nil)
@@ -147,6 +150,48 @@ func TestAdminAuthJWT(t *testing.T) {
 		protected.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("unexpected status: got=%d want=%d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("missing jti", func(t *testing.T) {
+		token := signHS256JWT(t, secret, map[string]any{
+			"iss":   issuer,
+			"aud":   audience,
+			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"scope": ScopeRotateSigningKey,
+		})
+		req := httptest.NewRequest(http.MethodPost, "/admin", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		protected.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("unexpected status: got=%d want=%d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("replayed jti", func(t *testing.T) {
+		token := signHS256JWT(t, secret, map[string]any{
+			"iss":   issuer,
+			"aud":   audience,
+			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"jti":   uniqueJTI("replay"),
+			"scope": ScopeRotateSigningKey,
+		})
+
+		firstReq := httptest.NewRequest(http.MethodPost, "/admin", nil)
+		firstReq.Header.Set("Authorization", "Bearer "+token)
+		firstRec := httptest.NewRecorder()
+		protected.ServeHTTP(firstRec, firstReq)
+		if firstRec.Code != http.StatusNoContent {
+			t.Fatalf("unexpected first status: got=%d want=%d", firstRec.Code, http.StatusNoContent)
+		}
+
+		secondReq := httptest.NewRequest(http.MethodPost, "/admin", nil)
+		secondReq.Header.Set("Authorization", "Bearer "+token)
+		secondRec := httptest.NewRecorder()
+		protected.ServeHTTP(secondRec, secondReq)
+		if secondRec.Code != http.StatusUnauthorized {
+			t.Fatalf("unexpected second status: got=%d want=%d", secondRec.Code, http.StatusUnauthorized)
 		}
 	})
 }
@@ -164,6 +209,7 @@ func TestAdminAuthJWTMissingSecret(t *testing.T) {
 
 	token := signHS256JWT(t, "any-secret", map[string]any{
 		"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+		"jti":   uniqueJTI("missing-secret"),
 		"scope": ScopeRotateSigningKey,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/admin", nil)
@@ -199,4 +245,8 @@ func signHS256JWT(t *testing.T, secret string, claims map[string]any) string {
 	signature := mac.Sum(nil)
 	signatureEnc := base64.RawURLEncoding.EncodeToString(signature)
 	return signingInput + "." + signatureEnc
+}
+
+func uniqueJTI(prefix string) string {
+	return prefix + "-" + time.Now().UTC().Format("20060102150405.000000000")
 }

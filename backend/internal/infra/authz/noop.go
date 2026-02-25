@@ -2,27 +2,60 @@ package authz
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	app "github.com/kaitobq/oauth21-oidc-idp/backend/internal/application/organization"
 )
 
-// NoopGateway allows all actions. Replace with a real policy engine implementation.
-type NoopGateway struct{}
+const (
+	ScopeOrganizationRead  = "organization.read"
+	ScopeOrganizationWrite = "organization.write"
+	ScopeOrganizationAdmin = "organization.admin"
+)
 
-var _ app.AuthzGateway = (*NoopGateway)(nil)
+// ScopeGateway authorizes actions based on actor subject and scopes.
+type ScopeGateway struct{}
 
-func NewNoopGateway() *NoopGateway {
-	return &NoopGateway{}
+var _ app.AuthzGateway = (*ScopeGateway)(nil)
+
+func NewScopeGateway() *ScopeGateway {
+	return &ScopeGateway{}
 }
 
-func (g *NoopGateway) AuthorizeCreateOrganization(_ context.Context, _ *app.Actor) error {
-	return nil
+func (g *ScopeGateway) AuthorizeCreateOrganization(_ context.Context, actor *app.Actor) error {
+	if err := ensureAuthenticatedActor(actor); err != nil {
+		return err
+	}
+	if actor.HasScope(ScopeOrganizationAdmin) || actor.HasScope(ScopeOrganizationWrite) {
+		return nil
+	}
+	return fmt.Errorf("%w: missing %s", app.ErrPermissionDenied, ScopeOrganizationWrite)
 }
 
-func (g *NoopGateway) AuthorizeGetOrganization(_ context.Context, _ *app.Actor) error {
-	return nil
+func (g *ScopeGateway) AuthorizeGetOrganization(_ context.Context, actor *app.Actor) error {
+	if err := ensureAuthenticatedActor(actor); err != nil {
+		return err
+	}
+	if actor.HasScope(ScopeOrganizationAdmin) || actor.HasScope(ScopeOrganizationRead) {
+		return nil
+	}
+	return fmt.Errorf("%w: missing %s", app.ErrPermissionDenied, ScopeOrganizationRead)
 }
 
-func (g *NoopGateway) AuthorizeListOrganizations(_ context.Context, _ *app.Actor) error {
+func (g *ScopeGateway) AuthorizeListOrganizations(_ context.Context, actor *app.Actor) error {
+	if err := ensureAuthenticatedActor(actor); err != nil {
+		return err
+	}
+	if actor.HasScope(ScopeOrganizationAdmin) || actor.HasScope(ScopeOrganizationRead) {
+		return nil
+	}
+	return fmt.Errorf("%w: missing %s", app.ErrPermissionDenied, ScopeOrganizationRead)
+}
+
+func ensureAuthenticatedActor(actor *app.Actor) error {
+	if actor == nil || strings.TrimSpace(actor.Subject) == "" || strings.EqualFold(strings.TrimSpace(actor.Subject), "anonymous") {
+		return app.ErrUnauthenticated
+	}
 	return nil
 }

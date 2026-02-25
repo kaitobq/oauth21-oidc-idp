@@ -2,6 +2,7 @@ package organization
 
 import (
 	"context"
+	"strings"
 
 	domain "github.com/kaitobq/oauth21-oidc-idp/backend/internal/domain/organization"
 )
@@ -16,6 +17,50 @@ type Facade struct {
 // Actor is the authenticated caller context used by authorization checks.
 type Actor struct {
 	Subject string
+	Scopes  map[string]struct{}
+}
+
+func NewActor(subject string, scopes []string) *Actor {
+	normalizedSubject := strings.TrimSpace(subject)
+	if normalizedSubject == "" {
+		normalizedSubject = "anonymous"
+	}
+
+	scopeSet := map[string]struct{}{}
+	for _, scope := range scopes {
+		s := strings.TrimSpace(scope)
+		if s == "" {
+			continue
+		}
+		scopeSet[s] = struct{}{}
+	}
+
+	return &Actor{
+		Subject: normalizedSubject,
+		Scopes:  scopeSet,
+	}
+}
+
+func (a *Actor) IsAnonymous() bool {
+	if a == nil {
+		return true
+	}
+	return strings.TrimSpace(a.Subject) == "" || strings.EqualFold(strings.TrimSpace(a.Subject), "anonymous")
+}
+
+func (a *Actor) HasScope(scope string) bool {
+	if a == nil {
+		return false
+	}
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return false
+	}
+	if len(a.Scopes) == 0 {
+		return false
+	}
+	_, ok := a.Scopes[scope]
+	return ok
 }
 
 // AuthzGateway checks permissions before use case execution.

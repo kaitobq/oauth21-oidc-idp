@@ -31,6 +31,8 @@ BASE_URL=http://localhost:8080 OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN=dev-private-j
 BASE_URL=http://localhost:8080 OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true OIDC_ADMIN_AUTH_MODE=jwt OIDC_ADMIN_JWT_HS256_SECRET=dev-admin-jwt-secret OIDC_ADMIN_JWT_ISS=harness-admin OIDC_ADMIN_JWT_AUD=oidc-admin ../scripts/harness_admin_auth_jwt.sh
 ```
 
+`harness_admin_auth_jwt.sh` は `jti` を含む HS256 JWT を生成し、管理APIのJWT + scope 認可を検証します。
+
 `harness_private_key_jwt.sh` は既定で `harness/keys/local/private_jwt_client_private.pem` を使用します。
 `make bootstrap` または `make gen-private-jwt-dev-keys` で鍵ペアを生成してください。
 必要に応じて `OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH` で差し替えてください。
