@@ -1,0 +1,13 @@
+id: private-key-jwt
+priority: p1
+objective: private_key_jwt を使う confidential client が token endpoint で認証でき、不正 assertion は invalid_client で拒否されること
+preconditions:
+  - authorization_code + pkce が有効
+  - private_key_jwt client が登録済み
+steps:
+  - authorize で private_key_jwt client の code を取得
+  - token 交換で不正 aud の client_assertion を送信し invalid_client を確認
+  - 同じ code で正しい client_assertion を送信し token 取得を確認
+expect:
+  - 不正 assertion は 401 / invalid_client で拒否される
+  - 正しい assertion で access_token / id_token が返る

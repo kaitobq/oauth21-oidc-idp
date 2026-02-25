@@ -81,11 +81,14 @@ BASE_URL=http://localhost:8080 make harness-id-token-claims
 
 # Validate confidential client auth (client_secret_basic)
 BASE_URL=http://localhost:8080 make harness-client-secret-basic
+
+# Validate private_key_jwt client auth
+BASE_URL=http://localhost:8080 make harness-private-key-jwt
 ```
 
 ### Local Clients
 
-`/oauth2/authorize` と `/oauth2/token` は開発用の公開クライアント（`none`）と confidential client（`client_secret_basic`）を事前登録しています。
+`/oauth2/authorize` と `/oauth2/token` は開発用の公開クライアント（`none`）と confidential client（`client_secret_basic` / `private_key_jwt`）を事前登録しています。
 `offline_access` scope を付けると `refresh_token` が発行されます。
 `nonce` を `authorize` に指定すると、`id_token` に `nonce` と `auth_time` を含めます。
 `id_token` 発行時は `access_token` 由来の `at_hash` も含めます。
@@ -98,6 +101,7 @@ BASE_URL=http://localhost:8080 make harness-client-secret-basic
 - `OIDC_CONFIDENTIAL_CLIENT_ID`（default: `local-confidential-client`）
 - `OIDC_CONFIDENTIAL_CLIENT_SECRET`（default: `local-confidential-secret`）
 - `OIDC_CONFIDENTIAL_REDIRECT_URI`（default: `http://localhost:3000/callback`）
+- private_key_jwt client: `local-private-jwt-client`（redirect: `http://localhost:3000/callback`）
 
 ## Development
 

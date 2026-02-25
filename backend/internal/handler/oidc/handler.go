@@ -80,12 +80,12 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 	}
 
 	grantType := r.PostForm.Get("grant_type")
-	clientID, clientSecret, authMethod, err := resolveTokenClientAuthentication(r)
+	clientAuth, err := resolveTokenClientAuthentication(r)
 	if err != nil {
 		h.writeOAuthError(w, err)
 		return
 	}
-	if err := h.provider.AuthenticateTokenClient(clientID, clientSecret, authMethod); err != nil {
+	if err := h.provider.AuthenticateTokenClient(clientAuth); err != nil {
 		h.writeOAuthError(w, err)
 		return
 	}
@@ -100,14 +100,14 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 			grantType,
 			r.PostForm.Get("code"),
 			r.PostForm.Get("redirect_uri"),
-			clientID,
+			clientAuth.ClientID,
 			r.PostForm.Get("code_verifier"),
 		)
 	case "refresh_token":
 		resp, exchangeErr = h.provider.ExchangeRefreshToken(
 			grantType,
 			r.PostForm.Get("refresh_token"),
-			clientID,
+			clientAuth.ClientID,
 			r.PostForm.Get("scope"),
 		)
 	default:
@@ -140,25 +140,53 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func resolveTokenClientAuthentication(r *http.Request) (clientID, clientSecret, authMethod string, err error) {
+func resolveTokenClientAuthentication(r *http.Request) (core.TokenClientAuthentication, error) {
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	formClientID := strings.TrimSpace(r.PostForm.Get("client_id"))
 	formClientSecret := r.PostForm.Get("client_secret")
+	formClientAssertionType := strings.TrimSpace(r.PostForm.Get("client_assertion_type"))
+	formClientAssertion := strings.TrimSpace(r.PostForm.Get("client_assertion"))
 
 	if authorization == "" {
+		if formClientAssertionType != "" || formClientAssertion != "" {
+			if formClientSecret != "" {
+				return core.TokenClientAuthentication{}, &core.OAuthError{
+					Code:        "invalid_client",
+					Description: "multiple client authentication methods are not allowed",
+					Status:      http.StatusUnauthorized,
+				}
+			}
+			return core.TokenClientAuthentication{
+				ClientID:            formClientID,
+				AuthMethod:          core.TokenEndpointAuthMethodPrivate,
+				ClientAssertionType: formClientAssertionType,
+				ClientAssertion:     formClientAssertion,
+			}, nil
+		}
 		if formClientSecret != "" {
-			return "", "", "", &core.OAuthError{
+			return core.TokenClientAuthentication{}, &core.OAuthError{
 				Code:        "invalid_client",
 				Description: "client_secret_post is not supported",
 				Status:      http.StatusUnauthorized,
 			}
 		}
-		return formClientID, "", "none", nil
+		return core.TokenClientAuthentication{
+			ClientID:   formClientID,
+			AuthMethod: core.TokenEndpointAuthMethodNone,
+		}, nil
+	}
+
+	if formClientAssertionType != "" || formClientAssertion != "" || formClientSecret != "" {
+		return core.TokenClientAuthentication{}, &core.OAuthError{
+			Code:        "invalid_client",
+			Description: "multiple client authentication methods are not allowed",
+			Status:      http.StatusUnauthorized,
+		}
 	}
 
 	authorizationParts := strings.SplitN(authorization, " ", 2)
 	if len(authorizationParts) != 2 || !strings.EqualFold(authorizationParts[0], "Basic") {
-		return "", "", "", &core.OAuthError{
+		return core.TokenClientAuthentication{}, &core.OAuthError{
 			Code:        "invalid_client",
 			Description: "authorization header must use basic scheme",
 			Status:      http.StatusUnauthorized,
@@ -167,7 +195,7 @@ func resolveTokenClientAuthentication(r *http.Request) (clientID, clientSecret, 
 
 	encodedCredentials := strings.TrimSpace(authorizationParts[1])
 	if encodedCredentials == "" {
-		return "", "", "", &core.OAuthError{
+		return core.TokenClientAuthentication{}, &core.OAuthError{
 			Code:        "invalid_client",
 			Description: "missing basic credentials",
 			Status:      http.StatusUnauthorized,
@@ -176,7 +204,7 @@ func resolveTokenClientAuthentication(r *http.Request) (clientID, clientSecret, 
 
 	rawCredentials, decodeErr := base64.StdEncoding.DecodeString(encodedCredentials)
 	if decodeErr != nil {
-		return "", "", "", &core.OAuthError{
+		return core.TokenClientAuthentication{}, &core.OAuthError{
 			Code:        "invalid_client",
 			Description: "invalid basic credentials encoding",
 			Status:      http.StatusUnauthorized,
@@ -186,22 +214,26 @@ func resolveTokenClientAuthentication(r *http.Request) (clientID, clientSecret, 
 	credentials := string(rawCredentials)
 	separator := strings.IndexByte(credentials, ':')
 	if separator <= 0 {
-		return "", "", "", &core.OAuthError{
+		return core.TokenClientAuthentication{}, &core.OAuthError{
 			Code:        "invalid_client",
 			Description: "invalid basic credentials format",
 			Status:      http.StatusUnauthorized,
 		}
 	}
 
-	clientID = credentials[:separator]
-	clientSecret = credentials[separator+1:]
+	clientID := credentials[:separator]
+	clientSecret := credentials[separator+1:]
 	if formClientID != "" && formClientID != clientID {
-		return "", "", "", &core.OAuthError{
+		return core.TokenClientAuthentication{}, &core.OAuthError{
 			Code:        "invalid_client",
 			Description: "client_id in body does not match authorization header",
 			Status:      http.StatusUnauthorized,
 		}
 	}
 
-	return clientID, clientSecret, "client_secret_basic", nil
+	return core.TokenClientAuthentication{
+		ClientID:     clientID,
+		AuthMethod:   core.TokenEndpointAuthMethodBasic,
+		ClientSecret: clientSecret,
+	}, nil
 }

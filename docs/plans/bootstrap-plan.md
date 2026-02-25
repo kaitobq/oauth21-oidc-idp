@@ -10,6 +10,7 @@
 - 2026-02-25: Phase 2 進行中（id_token claim: azp 追加）
 - 2026-02-25: Phase 2 進行中（id_token claim: sid 追加）
 - 2026-02-25: Phase 2 進行中（token endpoint client auth: client_secret_basic 追加）
+- 2026-02-25: Phase 2 進行中（token endpoint client auth: private_key_jwt 追加）
 
 ## Implementation Plan
 
@@ -36,5 +37,5 @@
 
 ## Next Actions
 1. クライアント登録を静的1件から永続化モデルへ移行
-2. クライアント認証（`private_key_jwt`）を段階導入
-3. 署名鍵ローテーションと監査ログを段階導入
+2. 署名鍵ローテーション（IDP鍵・client鍵）を段階導入
+3. 監査ログと異常検知を段階導入
