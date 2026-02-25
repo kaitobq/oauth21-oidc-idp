@@ -1240,6 +1240,14 @@ func TestRotatePrivateJWTClientKeyEndpointWithJWTAdminAuth(t *testing.T) {
 func signAdminJWT(t *testing.T, secret string, claims map[string]any) string {
 	t.Helper()
 
+	signedClaims := map[string]any{}
+	for k, v := range claims {
+		signedClaims[k] = v
+	}
+	if _, ok := signedClaims["jti"]; !ok {
+		signedClaims["jti"] = fmt.Sprintf("admin-jti-%d", time.Now().UTC().UnixNano())
+	}
+
 	headerBytes, err := json.Marshal(map[string]string{
 		"alg": "HS256",
 		"typ": "JWT",
@@ -1247,7 +1255,7 @@ func signAdminJWT(t *testing.T, secret string, claims map[string]any) string {
 	if err != nil {
 		t.Fatalf("marshal header error: %v", err)
 	}
-	claimsBytes, err := json.Marshal(claims)
+	claimsBytes, err := json.Marshal(signedClaims)
 	if err != nil {
 		t.Fatalf("marshal claims error: %v", err)
 	}

@@ -44,6 +44,8 @@ build_jwt() {
   local scope="$1"
   local exp
   exp=$(( $(date +%s) + 300 ))
+  local jti
+  jti="harness-admin-$(date +%s)-$(openssl rand -hex 8)-${scope//[^a-zA-Z0-9]/_}"
 
   local header payload header_enc payload_enc signing_input signature
   header='{"alg":"HS256","typ":"JWT"}'
@@ -51,8 +53,9 @@ build_jwt() {
     --arg iss "$ADMIN_JWT_ISS" \
     --arg aud "$ADMIN_JWT_AUD" \
     --arg scope "$scope" \
+    --arg jti "$jti" \
     --argjson exp "$exp" \
-    '{iss:$iss,aud:$aud,scope:$scope,exp:$exp}')"
+    '{iss:$iss,aud:$aud,scope:$scope,jti:$jti,exp:$exp}')"
 
   header_enc="$(printf "%s" "$header" | b64url_encode)"
   payload_enc="$(printf "%s" "$payload" | b64url_encode)"

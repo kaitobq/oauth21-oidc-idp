@@ -128,6 +128,7 @@ BASE_URL=http://localhost:8080 OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true OIDC_AD
 - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/local/private_jwt_client_public.pem`）
 - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM`（任意。設定時は `*_PATH` より優先）
 - `OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH`（harness 用。default: `harness/keys/local/private_jwt_client_private.pem`）
+- `OIDC_CLIENT_REGISTRY_PATH`（任意。設定時はクライアント登録/鍵ローテーション結果をJSONファイルへ永続化）
 - `OIDC_ADMIN_AUTH_MODE`（default: `static`。`static` / `jwt`）
 - `OIDC_ADMIN_JWT_HS256_SECRET`（`OIDC_ADMIN_AUTH_MODE=jwt` 時に必須）
 - `OIDC_ADMIN_JWT_ISS`（任意。設定時は JWT `iss` と一致必須）
@@ -140,6 +141,14 @@ BASE_URL=http://localhost:8080 OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true OIDC_AD
 `OIDC_ADMIN_AUTH_MODE=jwt` の場合、管理 API Bearer token は HS256 JWT として検証されます。必要 scope は以下です。
 - `/oauth2/admin/rotate-signing-key`: `oidc.admin.rotate_signing_key`
 - `/oauth2/admin/rotate-private-jwt-client-key`: `oidc.admin.rotate_private_jwt_client_key`
+同モードでは `jti` 必須で、同一 JWT（同一 `iss`/`aud`/`jti`）の再利用は拒否されます。
+
+### Organization API AuthZ
+
+`ENABLE_ORGANIZATION_API=true` の場合、organization API は `x-actor-sub` / `x-actor-scopes` ヘッダで認可されます。
+- `organization.read`: `GetOrganization` / `ListOrganizations`
+- `organization.write`: `CreateOrganization`
+- `organization.admin`: 全操作
 
 `make bootstrap` は `private_key_jwt` 用の開発鍵ペアをローカルに自動生成します。
 
@@ -147,6 +156,7 @@ BASE_URL=http://localhost:8080 OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true OIDC_AD
 
 `/oauth2/authorize`・`/oauth2/token`・管理API（鍵ローテーション）は JSON Lines の監査ログを標準出力へ出力します。
 例: `{"kind":"audit","event":"oidc.token","result":"success","grant_type":"authorization_code","client_id":"...","timestamp":"..."}`
+一定時間内に同一失敗イベントが連続すると `kind:"audit_alert"` の行が追加出力されます。
 
 ## Development
 

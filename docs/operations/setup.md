@@ -26,6 +26,7 @@
    - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/local/private_jwt_client_public.pem`）
    - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM`（任意。設定時は `*_PATH` より優先）
    - `OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH`（harness 用。default: `harness/keys/local/private_jwt_client_private.pem`）
+   - `OIDC_CLIENT_REGISTRY_PATH`（任意。設定時はクライアント登録/鍵ローテーション結果をJSONへ永続化）
    - `OIDC_ADMIN_AUTH_MODE`（default: `static`。`static` / `jwt`）
    - `OIDC_ADMIN_JWT_HS256_SECRET`（`OIDC_ADMIN_AUTH_MODE=jwt` 時に必須）
    - `OIDC_ADMIN_JWT_ISS`（任意。設定時は JWT `iss` と一致必須）
@@ -79,11 +80,14 @@
 - token endpoint の主要エラーが標準的な `error` / `error_description` で返る
 - `OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API=true` のとき、`/oauth2/admin/rotate-private-jwt-client-key` が有効化される
 - `OIDC_ADMIN_AUTH_MODE=jwt` のとき、管理 API で JWT `scope` による権限制御が有効になる
+- `OIDC_ADMIN_AUTH_MODE=jwt` のとき、JWT `jti` 再利用が `401` / `invalid_token` で拒否される
 - private_key_jwt 鍵ローテーション後、新鍵と直前鍵は認証成功し、最古鍵は拒否される
 - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true` のとき、`/oauth2/admin/rotate-signing-key` が有効化される
 - 署名鍵ローテーション後、JWKS の active `kid` が更新される
 - ローテーション直後は旧 active `kid` が grace window 中に保持される
 - 認可/トークン/管理API操作で `kind=audit` の JSONログが標準出力に出る
+- 連続失敗時に `kind=audit_alert` の JSONログが標準出力に出る
+- `ENABLE_ORGANIZATION_API=true` のとき、organization API が `x-actor-sub` / `x-actor-scopes` で認可される
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール

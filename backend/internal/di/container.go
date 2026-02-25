@@ -1,6 +1,7 @@
 package di
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	handler "github.com/kaitobq/oauth21-oidc-idp/backend/internal/handler/organization"
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/authz"
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/mysql"
+	infraOIDC "github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/oidc"
 	infra "github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/organization"
 	coreOIDC "github.com/kaitobq/oauth21-oidc-idp/backend/internal/oidc"
 )
@@ -32,6 +34,15 @@ func NewContainer() (*Container, error) {
 	provider, err := coreOIDC.NewProvider(cfg.Issuer, cfg.DevClientID, cfg.DevClientRedirectURI)
 	if err != nil {
 		return nil, fmt.Errorf("initialize oidc provider: %w", err)
+	}
+	if strings.TrimSpace(cfg.ClientRegistryPath) != "" {
+		clientStore, err := infraOIDC.NewFileClientStore(cfg.ClientRegistryPath)
+		if err != nil {
+			return nil, fmt.Errorf("initialize oidc client store: %w", err)
+		}
+		if err := provider.ConfigureClientStore(context.Background(), clientStore); err != nil {
+			return nil, fmt.Errorf("configure oidc client store: %w", err)
+		}
 	}
 	if cfg.ConfidentialClientID != coreOIDC.DefaultConfidentialClientID ||
 		cfg.ConfidentialSecret != coreOIDC.DefaultConfidentialClientSecret ||
@@ -105,10 +116,13 @@ func NewContainer() (*Container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize mysql for organization API: %w", err)
 	}
+	if err := mysql.EnsureOrganizationSchema(context.Background(), db); err != nil {
+		return nil, fmt.Errorf("ensure organization schema: %w", err)
+	}
 	repo := infra.NewMySQLRepository(db)
 	commandService := app.NewCommandService(repo)
 	queryService := app.NewQueryService(repo)
-	authzGateway := authz.NewNoopGateway()
+	authzGateway := authz.NewScopeGateway()
 
 	facade := app.NewFacade(commandService, queryService, authzGateway)
 	container.organizationHandler = handler.NewHandler(facade)

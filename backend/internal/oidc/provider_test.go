@@ -1,6 +1,7 @@
 package oidc
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -812,6 +813,97 @@ func TestAuthorizeRejectUnsupportedACRValues(t *testing.T) {
 	assertOAuthError(t, err, "invalid_request")
 }
 
+func TestConfigureClientStoreLoadsClients(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
+	store := &mockClientStore{
+		loaded: []ClientSnapshot{
+			{
+				ID:                      "persisted-basic-client",
+				RedirectURIs:            []string{"http://localhost:3000/basic-callback"},
+				TokenEndpointAuthMethod: TokenEndpointAuthMethodBasic,
+				ClientSecret:            "persisted-basic-secret",
+			},
+			{
+				ID:                      "persisted-private-client",
+				RedirectURIs:            []string{"http://localhost:3000/private-callback"},
+				TokenEndpointAuthMethod: TokenEndpointAuthMethodPrivate,
+				JWTSigningPublicKeysPEM: []string{mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM)},
+			},
+		},
+	}
+
+	if err := provider.ConfigureClientStore(context.Background(), store); err != nil {
+		t.Fatalf("ConfigureClientStore error: %v", err)
+	}
+	if len(store.saved) == 0 {
+		t.Fatalf("client store must be persisted at least once")
+	}
+
+	if err := provider.AuthenticateTokenClient(TokenClientAuthentication{
+		ClientID:     "persisted-basic-client",
+		AuthMethod:   TokenEndpointAuthMethodBasic,
+		ClientSecret: "persisted-basic-secret",
+	}); err != nil {
+		t.Fatalf("persisted basic client auth must succeed: %v", err)
+	}
+
+	assertion := signClientAssertion(
+		t,
+		privateKeyPEM,
+		"persisted-private-client",
+		testIssuer+"/oauth2/token",
+		time.Now().UTC().Add(5*time.Minute),
+	)
+	if err := provider.AuthenticateTokenClient(TokenClientAuthentication{
+		ClientID:            "persisted-private-client",
+		AuthMethod:          TokenEndpointAuthMethodPrivate,
+		ClientAssertionType: ClientAssertionTypeJWTBearer,
+		ClientAssertion:     assertion,
+	}); err != nil {
+		t.Fatalf("persisted private_key_jwt client auth must succeed: %v", err)
+	}
+}
+
+func TestClientStoreSaveFailureRollsBackRegistration(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	store := &mockClientStore{}
+	if err := provider.ConfigureClientStore(context.Background(), store); err != nil {
+		t.Fatalf("ConfigureClientStore error: %v", err)
+	}
+
+	store.saveErr = fmt.Errorf("forced save error")
+	err = provider.RegisterConfidentialClient(
+		"rollback-client",
+		"rollback-secret",
+		"http://localhost:3000/rollback",
+	)
+	if err == nil {
+		t.Fatalf("RegisterConfidentialClient must fail when client store save fails")
+	}
+
+	authErr := provider.AuthenticateTokenClient(TokenClientAuthentication{
+		ClientID:     "rollback-client",
+		AuthMethod:   TokenEndpointAuthMethodBasic,
+		ClientSecret: "rollback-secret",
+	})
+	if authErr == nil {
+		t.Fatalf("rolled-back client must not be registered")
+	}
+	assertOAuthError(t, authErr, "invalid_client")
+}
+
 func assertOAuthError(t *testing.T, err error, code string) {
 	t.Helper()
 
@@ -822,6 +914,33 @@ func assertOAuthError(t *testing.T, err error, code string) {
 	if oauthErr.Code != code {
 		t.Fatalf("unexpected oauth error code: %s", oauthErr.Code)
 	}
+}
+
+type mockClientStore struct {
+	loaded  []ClientSnapshot
+	saved   [][]ClientSnapshot
+	saveErr error
+}
+
+func (m *mockClientStore) LoadClients(_ context.Context) ([]ClientSnapshot, error) {
+	copied := make([]ClientSnapshot, len(m.loaded))
+	copy(copied, m.loaded)
+	return copied, nil
+}
+
+func (m *mockClientStore) SaveClients(_ context.Context, clients []ClientSnapshot) error {
+	if m.saveErr != nil {
+		return m.saveErr
+	}
+	snapshot := make([]ClientSnapshot, len(clients))
+	for i, c := range clients {
+		copyClient := c
+		copyClient.RedirectURIs = append([]string(nil), c.RedirectURIs...)
+		copyClient.JWTSigningPublicKeysPEM = append([]string(nil), c.JWTSigningPublicKeysPEM...)
+		snapshot[i] = copyClient
+	}
+	m.saved = append(m.saved, snapshot)
+	return nil
 }
 
 func parseJWTClaims(t *testing.T, rawToken string) map[string]any {

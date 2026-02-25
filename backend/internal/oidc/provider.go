@@ -1,6 +1,7 @@
 package oidc
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -14,6 +15,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +72,7 @@ type Provider struct {
 	signingKeys             []signingKey
 	maxPublishedSigningKeys int
 	clients                 map[string]*client
+	clientStore             ClientStore
 	usedClientAssertionJTIs map[string]map[string]int64
 	authCodes               map[string]*authorizationCode
 	accessTokens            map[string]*accessTokenGrant
@@ -93,6 +96,20 @@ type client struct {
 type clientSigningKey struct {
 	PublicKey *rsa.PublicKey
 	KID       string
+}
+
+type ClientSnapshot struct {
+	ID                      string   `json:"id"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	ClientSecret            string   `json:"client_secret,omitempty"`
+	JWTSigningPublicKeysPEM []string `json:"jwt_signing_public_keys_pem,omitempty"`
+	MaxJWTSigningKeys       int      `json:"max_jwt_signing_keys,omitempty"`
+}
+
+type ClientStore interface {
+	LoadClients(ctx context.Context) ([]ClientSnapshot, error)
+	SaveClients(ctx context.Context, clients []ClientSnapshot) error
 }
 
 type TokenClientAuthentication struct {
@@ -256,6 +273,38 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 	return provider, nil
 }
 
+func (p *Provider) ConfigureClientStore(ctx context.Context, store ClientStore) error {
+	if store == nil {
+		return fmt.Errorf("client store must not be nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	loadedClients, err := store.LoadClients(ctx)
+	if err != nil {
+		return fmt.Errorf("load clients from store: %w", err)
+	}
+
+	p.mu.Lock()
+	for _, snapshot := range loadedClients {
+		restoredClient, restoreErr := restoreClient(snapshot)
+		if restoreErr != nil {
+			p.mu.Unlock()
+			return fmt.Errorf("restore client %q from store: %w", snapshot.ID, restoreErr)
+		}
+		p.clients[restoredClient.ID] = restoredClient
+	}
+	p.clientStore = store
+	if err := p.persistClientsLocked(ctx); err != nil {
+		p.clientStore = nil
+		p.mu.Unlock()
+		return fmt.Errorf("persist clients after attaching store: %w", err)
+	}
+	p.mu.Unlock()
+	return nil
+}
+
 func (p *Provider) Discovery() discoveryDocument {
 	return discoveryDocument{
 		Issuer:                p.issuer,
@@ -409,8 +458,7 @@ func (p *Provider) RegisterConfidentialClient(clientID, clientSecret, redirectUR
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	previous, hadPrevious := p.clients[clientID]
 	p.clients[clientID] = &client{
 		ID:                      clientID,
 		TokenEndpointAuthMethod: TokenEndpointAuthMethodBasic,
@@ -419,6 +467,16 @@ func (p *Provider) RegisterConfidentialClient(clientID, clientSecret, redirectUR
 			redirectURI: {},
 		},
 	}
+	if err := p.persistClientsLocked(context.Background()); err != nil {
+		if hadPrevious {
+			p.clients[clientID] = previous
+		} else {
+			delete(p.clients, clientID)
+		}
+		p.mu.Unlock()
+		return fmt.Errorf("persist confidential client registration: %w", err)
+	}
+	p.mu.Unlock()
 	return nil
 }
 
@@ -445,8 +503,7 @@ func (p *Provider) RegisterPrivateJWTClient(clientID, redirectURI, publicKeyPEM 
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	previous, hadPrevious := p.clients[clientID]
 	p.clients[clientID] = &client{
 		ID:                      clientID,
 		TokenEndpointAuthMethod: TokenEndpointAuthMethodPrivate,
@@ -456,6 +513,16 @@ func (p *Provider) RegisterPrivateJWTClient(clientID, redirectURI, publicKeyPEM 
 			redirectURI: {},
 		},
 	}
+	if err := p.persistClientsLocked(context.Background()); err != nil {
+		if hadPrevious {
+			p.clients[clientID] = previous
+		} else {
+			delete(p.clients, clientID)
+		}
+		p.mu.Unlock()
+		return fmt.Errorf("persist private_key_jwt client registration: %w", err)
+	}
+	p.mu.Unlock()
 	return nil
 }
 
@@ -475,20 +542,22 @@ func (p *Provider) RotatePrivateJWTClientKey(clientID, publicKeyPEM string) (str
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	c, ok := p.clients[clientID]
 	if !ok {
+		p.mu.Unlock()
 		return "", fmt.Errorf("private_key_jwt client is not registered")
 	}
 	if c.TokenEndpointAuthMethod != TokenEndpointAuthMethodPrivate {
+		p.mu.Unlock()
 		return "", fmt.Errorf("client is not configured for private_key_jwt")
 	}
 
 	if len(c.JWTSigningKeys) > 0 && c.JWTSigningKeys[0].KID == signingKey.KID {
+		p.mu.Unlock()
 		return signingKey.KID, nil
 	}
 
+	previousKeys := append([]clientSigningKey(nil), c.JWTSigningKeys...)
 	c.JWTSigningKeys = append([]clientSigningKey{signingKey}, c.JWTSigningKeys...)
 	maxKeys := c.MaxJWTSigningKeys
 	if maxKeys < 1 {
@@ -497,7 +566,132 @@ func (p *Provider) RotatePrivateJWTClientKey(clientID, publicKeyPEM string) (str
 	if len(c.JWTSigningKeys) > maxKeys {
 		c.JWTSigningKeys = c.JWTSigningKeys[:maxKeys]
 	}
+	if err := p.persistClientsLocked(context.Background()); err != nil {
+		c.JWTSigningKeys = previousKeys
+		p.mu.Unlock()
+		return "", fmt.Errorf("persist private_key_jwt client key rotation: %w", err)
+	}
+	p.mu.Unlock()
 	return signingKey.KID, nil
+}
+
+func (p *Provider) persistClientsLocked(ctx context.Context) error {
+	if p.clientStore == nil {
+		return nil
+	}
+	clients, err := snapshotClients(p.clients)
+	if err != nil {
+		return err
+	}
+	return p.clientStore.SaveClients(ctx, clients)
+}
+
+func snapshotClients(clients map[string]*client) ([]ClientSnapshot, error) {
+	if len(clients) == 0 {
+		return nil, nil
+	}
+
+	clientIDs := make([]string, 0, len(clients))
+	for clientID := range clients {
+		clientIDs = append(clientIDs, clientID)
+	}
+	sort.Strings(clientIDs)
+
+	out := make([]ClientSnapshot, 0, len(clientIDs))
+	for _, clientID := range clientIDs {
+		c := clients[clientID]
+		snapshot := ClientSnapshot{
+			ID:                      c.ID,
+			TokenEndpointAuthMethod: c.TokenEndpointAuthMethod,
+			ClientSecret:            c.ClientSecret,
+			MaxJWTSigningKeys:       c.MaxJWTSigningKeys,
+		}
+
+		redirectURIs := make([]string, 0, len(c.RedirectURIs))
+		for redirectURI := range c.RedirectURIs {
+			redirectURIs = append(redirectURIs, redirectURI)
+		}
+		sort.Strings(redirectURIs)
+		snapshot.RedirectURIs = redirectURIs
+
+		for _, signingKey := range c.JWTSigningKeys {
+			publicKeyPEM, err := encodeRSAPublicKeyPEM(signingKey.PublicKey)
+			if err != nil {
+				return nil, fmt.Errorf("encode client %q signing key: %w", c.ID, err)
+			}
+			snapshot.JWTSigningPublicKeysPEM = append(snapshot.JWTSigningPublicKeysPEM, publicKeyPEM)
+		}
+
+		out = append(out, snapshot)
+	}
+	return out, nil
+}
+
+func restoreClient(snapshot ClientSnapshot) (*client, error) {
+	clientID := strings.TrimSpace(snapshot.ID)
+	if clientID == "" {
+		return nil, fmt.Errorf("client id must not be empty")
+	}
+
+	authMethod := strings.TrimSpace(snapshot.TokenEndpointAuthMethod)
+	if authMethod == "" {
+		authMethod = TokenEndpointAuthMethodNone
+	}
+
+	redirectURIs := map[string]struct{}{}
+	for _, redirectURI := range snapshot.RedirectURIs {
+		trimmedURI := strings.TrimSpace(redirectURI)
+		if trimmedURI == "" {
+			continue
+		}
+		if _, err := url.ParseRequestURI(trimmedURI); err != nil {
+			return nil, fmt.Errorf("invalid redirect uri %q: %w", trimmedURI, err)
+		}
+		redirectURIs[trimmedURI] = struct{}{}
+	}
+	if len(redirectURIs) == 0 {
+		return nil, fmt.Errorf("redirect_uris must not be empty")
+	}
+
+	restored := &client{
+		ID:                      clientID,
+		RedirectURIs:            redirectURIs,
+		TokenEndpointAuthMethod: authMethod,
+		ClientSecret:            strings.TrimSpace(snapshot.ClientSecret),
+		MaxJWTSigningKeys:       snapshot.MaxJWTSigningKeys,
+	}
+
+	switch authMethod {
+	case TokenEndpointAuthMethodNone:
+		restored.ClientSecret = ""
+		restored.JWTSigningKeys = nil
+	case TokenEndpointAuthMethodBasic:
+		if restored.ClientSecret == "" {
+			return nil, fmt.Errorf("client_secret is required for client_secret_basic client")
+		}
+		restored.JWTSigningKeys = nil
+	case TokenEndpointAuthMethodPrivate:
+		if len(snapshot.JWTSigningPublicKeysPEM) == 0 {
+			return nil, fmt.Errorf("jwt_signing_public_keys_pem is required for private_key_jwt client")
+		}
+		restored.ClientSecret = ""
+		restored.MaxJWTSigningKeys = snapshot.MaxJWTSigningKeys
+		if restored.MaxJWTSigningKeys < 1 {
+			restored.MaxJWTSigningKeys = defaultMaxClientSigningKeys
+		}
+		restored.JWTSigningKeys = make([]clientSigningKey, 0, len(snapshot.JWTSigningPublicKeysPEM))
+		for _, publicKeyPEM := range snapshot.JWTSigningPublicKeysPEM {
+			signingKey, err := parseClientSigningKeyPEM(publicKeyPEM)
+			if err != nil {
+				return nil, fmt.Errorf("parse private_key_jwt public key: %w", err)
+			}
+			restored.JWTSigningKeys = append(restored.JWTSigningKeys, signingKey)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported token endpoint auth method %q", authMethod)
+	}
+
+	return restored, nil
 }
 
 func (p *Provider) AuthenticateTokenClient(auth TokenClientAuthentication) error {
@@ -993,6 +1187,21 @@ func parseClientSigningKeyPEM(publicKeyPEM string) (clientSigningKey, error) {
 		PublicKey: publicKey,
 		KID:       kid,
 	}, nil
+}
+
+func encodeRSAPublicKeyPEM(publicKey *rsa.PublicKey) (string, error) {
+	if publicKey == nil {
+		return "", fmt.Errorf("public key is nil")
+	}
+	encoded, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", fmt.Errorf("marshal rsa public key: %w", err)
+	}
+	block := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: encoded,
+	}
+	return string(pem.EncodeToMemory(block)), nil
 }
 
 func parseRSAPublicKeyPEM(publicKeyPEM string) (*rsa.PublicKey, error) {
