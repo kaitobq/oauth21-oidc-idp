@@ -2,7 +2,8 @@
 
 ## Current Phase
 - 2026-02-25: Phase 0（repo + docs + harness scaffold）
-- 2026-02-25: Phase 1 着手（OIDC discovery + JWKS の実装）
+- 2026-02-25: Phase 1 完了（OIDC discovery + JWKS + Auth Code + PKCE 最小実装）
+- 2026-02-25: Phase 2 着手（hardening）
 
 ## Implementation Plan
 
@@ -15,7 +16,7 @@
 - OIDC discovery endpoint
 - JWKS endpoint
 - Authorization Code + PKCE
-  - `authorize` / `token` は placeholder から段階的に実装する
+  - `authorize` / `token` 最小フロー（公開クライアント + S256 + single-use code）
 
 ### Phase 2: Hardening
 - Refresh Token Rotation
@@ -28,6 +29,6 @@
 - Gate C: 主要フロー変更時に harness シナリオが更新される
 
 ## Next Actions
-1. `authorization_endpoint` の最小実装（PKCE 必須チェック）
-2. `token_endpoint` の最小実装（code_verifier 検証）
-3. `Client` / `User` / `Authorization Code` の最小モデル追加
+1. クライアント登録を静的1件から永続化モデルへ移行
+2. ID Token claim を拡張（`nonce`, `auth_time`, `at_hash` など）
+3. refresh token rotation / key rotation / 監査ログを段階導入

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - macOS / Linux
-- `bash`, `curl`, `jq`
+- `bash`, `curl`, `jq`, `openssl`
 - ローカルで起動できる IDP 実装
 
 ## Initial Setup
@@ -14,9 +14,13 @@
 3. IDP をローカル起動
    - 既定では `organization` API は無効（DB不要）
    - 必要な場合のみ `ENABLE_ORGANIZATION_API=true` を設定
-4. harness 実行
+4. 必要に応じて開発用クライアントを設定
+   - `OIDC_DEV_CLIENT_ID`（default: `local-dev-client`）
+   - `OIDC_DEV_REDIRECT_URI`（default: `http://localhost:3000/callback`）
+5. harness 実行
    ```bash
    BASE_URL=http://localhost:8080 make harness-smoke
+   BASE_URL=http://localhost:8080 make harness-auth-code-pkce
    ```
 
 ## Verification Checklist
@@ -24,8 +28,12 @@
 - discovery に `issuer`, `jwks_uri`, `authorization_endpoint`, `token_endpoint` が含まれる
 - JWKS endpoint が `keys` 配列を返す
 - `grant_types_supported` に `password` が含まれない
+- `authorize` が 302 で `code` を返す
+- `token` が 200 で `access_token` / `id_token` を返す
+- 同じ authorization code の再利用が `invalid_grant` で拒否される
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール
 - `HTTP 404` on discovery: `/.well-known/openid-configuration` の実装漏れ
 - `JWKS keys array is empty`: 鍵生成・公開設定を確認
+- `invalid_request` on authorize: `client_id` / `redirect_uri` / `code_challenge_method=S256` を確認
