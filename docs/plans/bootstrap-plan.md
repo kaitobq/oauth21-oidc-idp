@@ -8,6 +8,7 @@
 - 2026-02-25: Phase 2 進行中（id_token claim: at_hash 追加）
 - 2026-02-25: Phase 2 進行中（id_token claim: acr/amr 追加）
 - 2026-02-25: Phase 2 進行中（id_token claim: azp 追加）
+- 2026-02-25: Phase 2 進行中（id_token claim: sid 追加）
 
 ## Implementation Plan
 
@@ -34,5 +35,5 @@
 
 ## Next Actions
 1. クライアント登録を静的1件から永続化モデルへ移行
-2. ID Token claim を拡張（`sid` など）
+2. クライアント認証（`client_secret_basic` / `private_key_jwt`）を段階導入
 3. 署名鍵ローテーションと監査ログを段階導入

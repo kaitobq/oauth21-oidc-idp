@@ -39,6 +39,7 @@
 - `id_token` が `auth_time` を含む
 - `id_token` が `at_hash` を含み、返却された `access_token` と整合する
 - `id_token` が `azp` を含み、`client_id` と一致する
+- `id_token` が `sid` を含み、refresh 後も同一値を維持する
 - `id_token` が `acr` / `amr` を含む
 
 ## Troubleshooting

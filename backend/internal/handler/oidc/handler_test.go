@@ -152,6 +152,10 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	if idTokenClaims["azp"] != testClientID {
 		t.Fatalf("id_token azp mismatch: %v", idTokenClaims["azp"])
 	}
+	sid, ok := idTokenClaims["sid"].(string)
+	if !ok || sid == "" {
+		t.Fatalf("id_token must include non-empty sid")
+	}
 	authTime, ok := idTokenClaims["auth_time"].(float64)
 	if !ok {
 		t.Fatalf("id_token must include numeric auth_time")
@@ -224,6 +228,9 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	}
 	if refreshIDTokenClaims["azp"] != testClientID {
 		t.Fatalf("refresh id_token azp mismatch: %v", refreshIDTokenClaims["azp"])
+	}
+	if refreshIDTokenClaims["sid"] != sid {
+		t.Fatalf("refresh id_token sid mismatch: got=%v want=%v", refreshIDTokenClaims["sid"], sid)
 	}
 	if refreshIDTokenClaims["auth_time"] != authTime {
 		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", refreshIDTokenClaims["auth_time"], authTime)

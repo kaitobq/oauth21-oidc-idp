@@ -73,6 +73,7 @@ type authorizationCode struct {
 	Scope           string
 	State           string
 	Nonce           string
+	SessionID       string
 	ACR             string
 	AMR             []string
 	AuthenticatedAt time.Time
@@ -87,6 +88,7 @@ type refreshTokenGrant struct {
 	ClientID        string
 	Subject         string
 	Scope           string
+	SessionID       string
 	ACR             string
 	AMR             []string
 	AuthenticatedAt time.Time
@@ -272,6 +274,10 @@ func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, 
 	if err != nil {
 		return "", fmt.Errorf("generate authorization code: %w", err)
 	}
+	sessionID, err := randomToken(32)
+	if err != nil {
+		return "", fmt.Errorf("generate session id: %w", err)
+	}
 	if scope == "" {
 		scope = "openid"
 	}
@@ -284,6 +290,7 @@ func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, 
 		Scope:           scope,
 		State:           state,
 		Nonce:           nonce,
+		SessionID:       sessionID,
 		ACR:             acr,
 		AMR:             []string{defaultAMRMethod},
 		AuthenticatedAt: authenticatedAt,
@@ -354,6 +361,7 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 	subject := entry.Subject
 	scope := entry.Scope
 	nonce := entry.Nonce
+	sessionID := entry.SessionID
 	acr := entry.ACR
 	amr := append([]string(nil), entry.AMR...)
 	authenticatedAt := entry.AuthenticatedAt
@@ -382,6 +390,7 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 			ClientID:        clientID,
 			Subject:         subject,
 			Scope:           scope,
+			SessionID:       sessionID,
 			ACR:             acr,
 			AMR:             append([]string(nil), amr...),
 			AuthenticatedAt: authenticatedAt,
@@ -392,7 +401,7 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 	}
 
 	if hasScope(scope, "openid") {
-		idToken, err := p.signIDToken(subject, clientID, nonce, acr, amr, authenticatedAt, accessToken)
+		idToken, err := p.signIDToken(subject, clientID, nonce, acr, amr, authenticatedAt, sessionID, accessToken)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -446,6 +455,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 
 	entry.Used = true
 	subject := entry.Subject
+	sessionID := entry.SessionID
 	acr := entry.ACR
 	amr := append([]string(nil), entry.AMR...)
 	authenticatedAt := entry.AuthenticatedAt
@@ -466,6 +476,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 		ClientID:        clientID,
 		Subject:         subject,
 		Scope:           issuedScope,
+		SessionID:       sessionID,
 		ACR:             acr,
 		AMR:             append([]string(nil), amr...),
 		AuthenticatedAt: authenticatedAt,
@@ -482,7 +493,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 	}
 
 	if hasScope(issuedScope, "openid") {
-		idToken, err := p.signIDToken(subject, clientID, "", acr, amr, authenticatedAt, accessToken)
+		idToken, err := p.signIDToken(subject, clientID, "", acr, amr, authenticatedAt, sessionID, accessToken)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -492,7 +503,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 	return resp, nil
 }
 
-func (p *Provider) signIDToken(subject, audience, nonce, acr string, amr []string, authenticatedAt time.Time, accessToken string) (string, error) {
+func (p *Provider) signIDToken(subject, audience, nonce, acr string, amr []string, authenticatedAt time.Time, sessionID, accessToken string) (string, error) {
 	now := time.Now().UTC()
 	header := map[string]string{
 		"alg": "RS256",
@@ -518,6 +529,9 @@ func (p *Provider) signIDToken(subject, audience, nonce, acr string, amr []strin
 	}
 	if len(amr) > 0 {
 		claims["amr"] = append([]string(nil), amr...)
+	}
+	if sessionID != "" {
+		claims["sid"] = sessionID
 	}
 	if accessToken != "" {
 		claims["at_hash"] = accessTokenHash(accessToken)

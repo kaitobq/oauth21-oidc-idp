@@ -38,6 +38,7 @@ OAuth 2.1 / OIDC の基本要件を満たす IDP を実装し、相互運用性�
 6. ID Token と同時に Access Token を返す場合、ID Token に `at_hash` を含める。
 7. ID Token に `acr` / `amr` を含める。
 8. ID Token に `azp` を含める。
+9. ID Token に `sid` を含め、refresh で再発行した ID Token でも同一 `sid` を維持する。
 
 ### 4. Security & Operations
 1. 署名鍵ローテーション手順を定義する。

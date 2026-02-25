@@ -76,7 +76,7 @@ BASE_URL=http://localhost:8080 make harness-auth-code-pkce
 # Validate refresh token rotation flow
 BASE_URL=http://localhost:8080 make harness-refresh-rotation
 
-# Validate id_token claims (nonce/auth_time/at_hash/azp/acr/amr)
+# Validate id_token claims (nonce/auth_time/at_hash/azp/sid/acr/amr)
 BASE_URL=http://localhost:8080 make harness-id-token-claims
 ```
 
@@ -87,6 +87,7 @@ BASE_URL=http://localhost:8080 make harness-id-token-claims
 `nonce` を `authorize` に指定すると、`id_token` に `nonce` と `auth_time` を含めます。
 `id_token` 発行時は `access_token` 由来の `at_hash` も含めます。
 `id_token` には認可済みクライアントを示す `azp` を含めます。
+`id_token` にはセッション識別子 `sid` を含め、refresh 後も同一 `sid` を維持します。
 `acr_values` を `authorize` に指定すると、`id_token` に `acr` と `amr` を含めます。
 
 - `OIDC_DEV_CLIENT_ID`（default: `local-dev-client`）

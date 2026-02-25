@@ -190,6 +190,11 @@ if jq -e --arg azp "$CLIENT_ID" '.azp == $azp' "$id_claims_file" >/dev/null 2>&1
 else
   fail "id_token azp mismatch"
 fi
+if jq -e '.sid | strings and (length > 0)' "$id_claims_file" >/dev/null 2>&1; then
+  pass "id_token includes sid"
+else
+  fail "id_token sid missing"
+fi
 if jq -e '.auth_time | numbers' "$id_claims_file" >/dev/null 2>&1; then
   pass "id_token includes numeric auth_time"
 else
@@ -213,6 +218,7 @@ else
 fi
 
 auth_time="$(jq -r '.auth_time // empty' "$id_claims_file")"
+sid="$(jq -r '.sid // empty' "$id_claims_file")"
 
 refresh_status="$(
   curl -sS -m "$TIMEOUT_SECONDS" -o "$refresh_body" -w "%{http_code}" \
@@ -256,6 +262,11 @@ if jq -e --arg azp "$CLIENT_ID" '.azp == $azp' "$refresh_claims_file" >/dev/null
   pass "refresh id_token preserves azp"
 else
   fail "refresh id_token azp mismatch"
+fi
+if jq -e --arg sid "$sid" '.sid == $sid and ($sid | length > 0)' "$refresh_claims_file" >/dev/null 2>&1; then
+  pass "refresh id_token preserves sid"
+else
+  fail "refresh id_token sid mismatch"
 fi
 if jq -e --arg auth_time "$auth_time" '.auth_time | tostring == $auth_time' "$refresh_claims_file" >/dev/null 2>&1; then
   pass "refresh id_token preserves auth_time"
