@@ -2,6 +2,7 @@ package oidc
 
 import (
 	"crypto"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/handler/middleware"
 	core "github.com/kaitobq/oauth21-oidc-idp/backend/internal/oidc"
 )
 
@@ -971,6 +973,62 @@ func TestRotateSigningKeyEndpointWithoutTokenConfig(t *testing.T) {
 	}
 }
 
+func TestRotateSigningKeyEndpointWithJWTAdminAuth(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	h := NewHandlerWithSigningKeyRotationAuth(
+		provider,
+		"unused-static-token",
+		middleware.AdminAuthModeJWT,
+		"test-admin-jwt-secret",
+		"test-admin-issuer",
+		"oidc-admin",
+	)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	invalidScopeToken := signAdminJWT(
+		t,
+		"test-admin-jwt-secret",
+		map[string]any{
+			"iss":   "test-admin-issuer",
+			"aud":   "oidc-admin",
+			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"scope": middleware.ScopeRotatePrivateJWTClientKey,
+		},
+	)
+	invalidScopeReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-signing-key", nil)
+	invalidScopeReq.Header.Set("Authorization", "Bearer "+invalidScopeToken)
+	invalidScopeRec := httptest.NewRecorder()
+	mux.ServeHTTP(invalidScopeRec, invalidScopeReq)
+	if invalidScopeRec.Code != http.StatusForbidden {
+		t.Fatalf("insufficient scope must be rejected: got=%d want=%d", invalidScopeRec.Code, http.StatusForbidden)
+	}
+
+	validToken := signAdminJWT(
+		t,
+		"test-admin-jwt-secret",
+		map[string]any{
+			"iss":   "test-admin-issuer",
+			"aud":   "oidc-admin",
+			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"scope": middleware.ScopeRotateSigningKey,
+		},
+	)
+	validReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-signing-key", nil)
+	validReq.Header.Set("Authorization", "Bearer "+validToken)
+	validRec := httptest.NewRecorder()
+	mux.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("valid jwt scope must be accepted: got=%d want=%d", validRec.Code, http.StatusOK)
+	}
+}
+
 func TestRotatePrivateJWTClientKeyEndpointDisabledByDefault(t *testing.T) {
 	t.Parallel()
 
@@ -1103,6 +1161,105 @@ func TestRotatePrivateJWTClientKeyEndpointWithoutTokenConfig(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("misconfigured token must return 500: got=%d want=%d", rec.Code, http.StatusInternalServerError)
 	}
+}
+
+func TestRotatePrivateJWTClientKeyEndpointWithJWTAdminAuth(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	privateKey := mustGenerateTestPrivateKeyPEM(t)
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, privateKey),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+	h := NewHandlerWithPrivateJWTClientKeyRotationAuth(
+		provider,
+		"unused-static-token",
+		middleware.AdminAuthModeJWT,
+		"test-private-admin-jwt-secret",
+		"test-admin-issuer",
+		"oidc-admin",
+	)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	invalidScopeToken := signAdminJWT(
+		t,
+		"test-private-admin-jwt-secret",
+		map[string]any{
+			"iss":   "test-admin-issuer",
+			"aud":   "oidc-admin",
+			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"scope": middleware.ScopeRotateSigningKey,
+		},
+	)
+	invalidScopeReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-private-jwt-client-key", strings.NewReader("{}"))
+	invalidScopeReq.Header.Set("Authorization", "Bearer "+invalidScopeToken)
+	invalidScopeReq.Header.Set("Content-Type", "application/json")
+	invalidScopeRec := httptest.NewRecorder()
+	mux.ServeHTTP(invalidScopeRec, invalidScopeReq)
+	if invalidScopeRec.Code != http.StatusForbidden {
+		t.Fatalf("insufficient scope must be rejected: got=%d want=%d", invalidScopeRec.Code, http.StatusForbidden)
+	}
+
+	privateKey2 := mustGenerateTestPrivateKeyPEM(t)
+	body, err := json.Marshal(map[string]string{
+		"client_id":      core.DefaultPrivateJWTClientID,
+		"public_key_pem": mustPublicKeyPEMFromPrivateKey(t, privateKey2),
+	})
+	if err != nil {
+		t.Fatalf("marshal rotate payload error: %v", err)
+	}
+	validToken := signAdminJWT(
+		t,
+		"test-private-admin-jwt-secret",
+		map[string]any{
+			"iss":   "test-admin-issuer",
+			"aud":   "oidc-admin",
+			"exp":   time.Now().UTC().Add(5 * time.Minute).Unix(),
+			"scope": middleware.ScopeRotatePrivateJWTClientKey,
+		},
+	)
+	validReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-private-jwt-client-key", strings.NewReader(string(body)))
+	validReq.Header.Set("Authorization", "Bearer "+validToken)
+	validReq.Header.Set("Content-Type", "application/json")
+	validRec := httptest.NewRecorder()
+	mux.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("valid jwt scope must be accepted: got=%d want=%d", validRec.Code, http.StatusOK)
+	}
+}
+
+func signAdminJWT(t *testing.T, secret string, claims map[string]any) string {
+	t.Helper()
+
+	headerBytes, err := json.Marshal(map[string]string{
+		"alg": "HS256",
+		"typ": "JWT",
+	})
+	if err != nil {
+		t.Fatalf("marshal header error: %v", err)
+	}
+	claimsBytes, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims error: %v", err)
+	}
+	headerEnc := base64.RawURLEncoding.EncodeToString(headerBytes)
+	claimsEnc := base64.RawURLEncoding.EncodeToString(claimsBytes)
+	signingInput := headerEnc + "." + claimsEnc
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(signingInput))
+	signature := mac.Sum(nil)
+
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
 func queryParam(t *testing.T, rawURL, name string) string {

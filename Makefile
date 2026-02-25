@@ -1,4 +1,4 @@
-.PHONY: bootstrap gen-private-jwt-dev-keys harness-smoke harness-auth-code-pkce harness-refresh-rotation harness-id-token-claims harness-userinfo harness-client-secret-basic harness-private-key-jwt harness-private-jwt-replay-protection harness-token-error-contract harness-private-jwt-key-rotation harness-signing-key-rotation setup gen lint-proto check test run-backend run-frontend clean
+.PHONY: bootstrap gen-private-jwt-dev-keys harness-smoke harness-auth-code-pkce harness-refresh-rotation harness-id-token-claims harness-userinfo harness-admin-auth-jwt harness-client-secret-basic harness-private-key-jwt harness-private-jwt-replay-protection harness-token-error-contract harness-private-jwt-key-rotation harness-signing-key-rotation setup gen lint-proto check test run-backend run-frontend clean
 
 bootstrap:
 	chmod +x scripts/harness_smoke.sh
@@ -6,6 +6,7 @@ bootstrap:
 	chmod +x scripts/harness_refresh_rotation.sh
 	chmod +x scripts/harness_id_token_claims.sh
 	chmod +x scripts/harness_userinfo.sh
+	chmod +x scripts/harness_admin_auth_jwt.sh
 	chmod +x scripts/harness_client_secret_basic.sh
 	chmod +x scripts/harness_private_key_jwt.sh
 	chmod +x scripts/harness_private_jwt_replay_protection.sh
@@ -37,6 +38,9 @@ harness-id-token-claims:
 
 harness-userinfo:
 	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_userinfo.sh
+
+harness-admin-auth-jwt:
+	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_admin_auth_jwt.sh
 
 harness-client-secret-basic:
 	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_client_secret_basic.sh

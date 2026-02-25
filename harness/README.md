@@ -14,6 +14,7 @@ IDP 実装に対して継続的に仕様適合を確認するための検証資�
 - `../scripts/harness_private_jwt_replay_protection.sh`: private_key_jwt の assertion replay (jti) 防止検証
 - `../scripts/harness_token_error_contract.sh`: token endpoint のエラーレスポンス契約検証
 - `../scripts/harness_private_jwt_key_rotation.sh`: private_key_jwt クライアント鍵ローテーション検証
+- `../scripts/harness_admin_auth_jwt.sh`: 管理 API の JWT Bearer scope 認可検証
 
 ## Run
 ```bash
@@ -27,6 +28,7 @@ BASE_URL=http://localhost:8080 ../scripts/harness_private_key_jwt.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_private_jwt_replay_protection.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_token_error_contract.sh
 BASE_URL=http://localhost:8080 OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN=dev-private-jwt-key-rotation-token ../scripts/harness_private_jwt_key_rotation.sh
+BASE_URL=http://localhost:8080 OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true OIDC_ADMIN_AUTH_MODE=jwt OIDC_ADMIN_JWT_HS256_SECRET=dev-admin-jwt-secret OIDC_ADMIN_JWT_ISS=harness-admin OIDC_ADMIN_JWT_AUD=oidc-admin ../scripts/harness_admin_auth_jwt.sh
 ```
 
 `harness_private_key_jwt.sh` は既定で `harness/keys/local/private_jwt_client_private.pem` を使用します。

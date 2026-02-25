@@ -21,6 +21,10 @@ type Config struct {
 	PrivateJWTRedirectURI       string
 	PrivateJWTPublicKeyPEM      string
 	PrivateJWTPublicKeyPath     string
+	AdminAuthMode               string
+	AdminJWTSecret              string
+	AdminJWTIssuer              string
+	AdminJWTAudience            string
 	EnablePrivateJWTKeyRotation bool
 	PrivateJWTKeyRotationToken  string
 	EnableSigningKeyRotationAPI bool
@@ -49,6 +53,10 @@ func Load() *Config {
 		PrivateJWTRedirectURI:       getEnv("OIDC_PRIVATE_JWT_REDIRECT_URI", "http://localhost:3000/callback"),
 		PrivateJWTPublicKeyPEM:      getEnv("OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM", ""),
 		PrivateJWTPublicKeyPath:     getEnv("OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH", "config/keys/local/private_jwt_client_public.pem"),
+		AdminAuthMode:               strings.TrimSpace(strings.ToLower(getEnv("OIDC_ADMIN_AUTH_MODE", "static"))),
+		AdminJWTSecret:              getEnv("OIDC_ADMIN_JWT_HS256_SECRET", ""),
+		AdminJWTIssuer:              getEnv("OIDC_ADMIN_JWT_ISS", ""),
+		AdminJWTAudience:            getEnv("OIDC_ADMIN_JWT_AUD", "oidc-admin"),
 		EnablePrivateJWTKeyRotation: getEnvBool("OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API", false),
 		PrivateJWTKeyRotationToken:  getEnv("OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN", "dev-private-jwt-key-rotation-token"),
 		EnableSigningKeyRotationAPI: getEnvBool("OIDC_ENABLE_SIGNING_KEY_ROTATION_API", false),

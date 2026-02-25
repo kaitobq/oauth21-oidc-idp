@@ -26,6 +26,10 @@
    - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/local/private_jwt_client_public.pem`）
    - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM`（任意。設定時は `*_PATH` より優先）
    - `OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH`（harness 用。default: `harness/keys/local/private_jwt_client_private.pem`）
+   - `OIDC_ADMIN_AUTH_MODE`（default: `static`。`static` / `jwt`）
+   - `OIDC_ADMIN_JWT_HS256_SECRET`（`OIDC_ADMIN_AUTH_MODE=jwt` 時に必須）
+   - `OIDC_ADMIN_JWT_ISS`（任意。設定時は JWT `iss` と一致必須）
+   - `OIDC_ADMIN_JWT_AUD`（default: `oidc-admin`。設定時は JWT `aud` と一致必須）
    - `OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API`（default: `false`）
    - `OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN`（default: `dev-private-jwt-key-rotation-token`）
    - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API`（default: `false`）
@@ -43,6 +47,7 @@
    BASE_URL=http://localhost:8080 make harness-token-error-contract
    BASE_URL=http://localhost:8080 OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN=dev-private-jwt-key-rotation-token make harness-private-jwt-key-rotation
    BASE_URL=http://localhost:8080 OIDC_SIGNING_KEY_ROTATION_TOKEN=dev-signing-key-rotation-token make harness-signing-key-rotation
+   BASE_URL=http://localhost:8080 OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true OIDC_ADMIN_AUTH_MODE=jwt OIDC_ADMIN_JWT_HS256_SECRET=dev-admin-jwt-secret OIDC_ADMIN_JWT_ISS=harness-admin OIDC_ADMIN_JWT_AUD=oidc-admin make harness-admin-auth-jwt
    ```
 
 ## Verification Checklist
@@ -73,6 +78,7 @@
 - 同一 `client_assertion`（同一 `jti`）の再利用が `401` / `invalid_client` で拒否される
 - token endpoint の主要エラーが標準的な `error` / `error_description` で返る
 - `OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API=true` のとき、`/oauth2/admin/rotate-private-jwt-client-key` が有効化される
+- `OIDC_ADMIN_AUTH_MODE=jwt` のとき、管理 API で JWT `scope` による権限制御が有効になる
 - private_key_jwt 鍵ローテーション後、新鍵と直前鍵は認証成功し、最古鍵は拒否される
 - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true` のとき、`/oauth2/admin/rotate-signing-key` が有効化される
 - 署名鍵ローテーション後、JWKS の active `kid` が更新される
