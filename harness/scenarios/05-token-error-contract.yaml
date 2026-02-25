@@ -2,9 +2,11 @@ id: token-error-contract
 priority: p1
 objective: token endpoint が標準的なエラーフォーマットを返すこと
 steps:
-  - 不正 client 認証で token endpoint を呼ぶ
-  - 不正 code で token endpoint を呼ぶ
+  - 不正な `client_secret_basic` 認証で token endpoint を呼ぶ
+  - 不正 `authorization_code` で token endpoint を呼ぶ
+  - 未サポート `grant_type` で token endpoint を呼ぶ
 expect:
   - HTTP ステータスと JSON エラーが整合する
   - error と error_description が返る
-  - 内部実装詳細を露出しない
+  - エラーの種類が `invalid_client` / `invalid_grant` / `unsupported_grant_type` に整合する
+  - error_description が内部実装詳細を露出しない

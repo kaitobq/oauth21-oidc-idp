@@ -482,6 +482,93 @@ func TestTokenFlowWithPrivateKeyJWT(t *testing.T) {
 	}
 }
 
+func TestTokenErrorContract(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+	h := NewHandler(provider)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	t.Run("unsupported_grant_type", func(t *testing.T) {
+		form := url.Values{
+			"grant_type": {"password"},
+			"client_id":  {testClientID},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assertTokenErrorContract(t, rec, http.StatusBadRequest, "unsupported_grant_type")
+	})
+
+	t.Run("invalid_grant", func(t *testing.T) {
+		form := url.Values{
+			"grant_type":    {"authorization_code"},
+			"code":          {"invalid-code"},
+			"redirect_uri":  {testRedirectURI},
+			"client_id":     {testClientID},
+			"code_verifier": {testCodeVerifier},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assertTokenErrorContract(t, rec, http.StatusBadRequest, "invalid_grant")
+	})
+
+	t.Run("invalid_client", func(t *testing.T) {
+		codeChallenge := pkceS256(testCodeVerifier)
+		authReq := httptest.NewRequest(
+			http.MethodGet,
+			"/oauth2/authorize?response_type=code&client_id="+url.QueryEscape(core.DefaultConfidentialClientID)+
+				"&redirect_uri="+url.QueryEscape(core.DefaultConfidentialRedirect)+
+				"&scope="+url.QueryEscape("openid")+
+				"&state="+url.QueryEscape("error-contract-state")+
+				"&code_challenge="+url.QueryEscape(codeChallenge)+
+				"&code_challenge_method=S256",
+			nil,
+		)
+		authRec := httptest.NewRecorder()
+		mux.ServeHTTP(authRec, authReq)
+		if authRec.Code != http.StatusFound {
+			t.Fatalf("expected 302 for authorize, got %d", authRec.Code)
+		}
+		code := queryParam(t, authRec.Header().Get("Location"), "code")
+		if code == "" {
+			t.Fatalf("authorize redirect must include code")
+		}
+
+		form := url.Values{
+			"grant_type":    {"authorization_code"},
+			"code":          {code},
+			"redirect_uri":  {core.DefaultConfidentialRedirect},
+			"code_verifier": {testCodeVerifier},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(core.DefaultConfidentialClientID+":wrong-secret")))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assertTokenErrorContract(t, rec, http.StatusUnauthorized, "invalid_client")
+	})
+}
+
 func TestRotateSigningKeyEndpointDisabledByDefault(t *testing.T) {
 	t.Parallel()
 
@@ -791,6 +878,29 @@ func containsValue(values []any, target string) bool {
 		}
 	}
 	return false
+}
+
+func assertTokenErrorContract(t *testing.T, rec *httptest.ResponseRecorder, expectedStatus int, expectedError string) {
+	t.Helper()
+
+	if rec.Code != expectedStatus {
+		t.Fatalf("unexpected status: got=%d want=%d body=%s", rec.Code, expectedStatus, rec.Body.String())
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid token error json: %v", err)
+	}
+	if payload["error"] != expectedError {
+		t.Fatalf("unexpected oauth error: got=%s want=%s", payload["error"], expectedError)
+	}
+	desc := strings.TrimSpace(payload["error_description"])
+	if desc == "" {
+		t.Fatalf("error_description must not be empty")
+	}
+	lowerDesc := strings.ToLower(desc)
+	if strings.Contains(lowerDesc, "panic") || strings.Contains(lowerDesc, "stack") || strings.Contains(lowerDesc, "internal") {
+		t.Fatalf("error_description must not expose internal details: %s", desc)
+	}
 }
 
 func claimHasStringValue(t *testing.T, claims map[string]any, claimName, target string) bool {

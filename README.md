@@ -87,6 +87,9 @@ BASE_URL=http://localhost:8080 make harness-client-secret-basic
 # Validate private_key_jwt client auth
 BASE_URL=http://localhost:8080 make harness-private-key-jwt
 
+# Validate token endpoint error contract
+BASE_URL=http://localhost:8080 make harness-token-error-contract
+
 # Validate private_key_jwt client key rotation
 BASE_URL=http://localhost:8080 OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN=dev-private-jwt-key-rotation-token make harness-private-jwt-key-rotation
 

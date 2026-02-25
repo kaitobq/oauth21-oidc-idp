@@ -38,6 +38,7 @@
    BASE_URL=http://localhost:8080 make harness-id-token-claims
    BASE_URL=http://localhost:8080 make harness-client-secret-basic
    BASE_URL=http://localhost:8080 make harness-private-key-jwt
+   BASE_URL=http://localhost:8080 make harness-token-error-contract
    BASE_URL=http://localhost:8080 OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN=dev-private-jwt-key-rotation-token make harness-private-jwt-key-rotation
    BASE_URL=http://localhost:8080 OIDC_SIGNING_KEY_ROTATION_TOKEN=dev-signing-key-rotation-token make harness-signing-key-rotation
    ```
@@ -64,6 +65,7 @@
 - 不正な Basic 認証が `401` / `invalid_client` で拒否される
 - confidential client が `private_key_jwt` で token 交換できる
 - 不正な client assertion が `401` / `invalid_client` で拒否される
+- token endpoint の主要エラーが標準的な `error` / `error_description` で返る
 - `OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API=true` のとき、`/oauth2/admin/rotate-private-jwt-client-key` が有効化される
 - private_key_jwt 鍵ローテーション後、新鍵と直前鍵は認証成功し、最古鍵は拒否される
 - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true` のとき、`/oauth2/admin/rotate-signing-key` が有効化される
