@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/audit"
 	core "github.com/kaitobq/oauth21-oidc-idp/backend/internal/oidc"
 )
 
 type Handler struct {
 	provider                          *core.Provider
+	auditLogger                       *audit.Logger
 	enableSigningKeyRotation          bool
 	signingKeyRotationToken           string
 	enablePrivateJWTClientKeyRotation bool
@@ -20,12 +22,16 @@ type Handler struct {
 }
 
 func NewHandler(provider *core.Provider) *Handler {
-	return &Handler{provider: provider}
+	return &Handler{
+		provider:    provider,
+		auditLogger: audit.New(),
+	}
 }
 
 func NewHandlerWithSigningKeyRotation(provider *core.Provider, rotationToken string) *Handler {
 	return &Handler{
 		provider:                 provider,
+		auditLogger:              audit.New(),
 		enableSigningKeyRotation: true,
 		signingKeyRotationToken:  strings.TrimSpace(rotationToken),
 	}
@@ -34,6 +40,7 @@ func NewHandlerWithSigningKeyRotation(provider *core.Provider, rotationToken str
 func NewHandlerWithPrivateJWTClientKeyRotation(provider *core.Provider, rotationToken string) *Handler {
 	return &Handler{
 		provider:                          provider,
+		auditLogger:                       audit.New(),
 		enablePrivateJWTClientKeyRotation: true,
 		privateJWTClientKeyRotationToken:  strings.TrimSpace(rotationToken),
 	}
@@ -42,6 +49,7 @@ func NewHandlerWithPrivateJWTClientKeyRotation(provider *core.Provider, rotation
 func NewHandlerWithAdminAPIs(provider *core.Provider, signingKeyRotationToken, privateJWTClientKeyRotationToken string) *Handler {
 	return &Handler{
 		provider:                          provider,
+		auditLogger:                       audit.New(),
 		enableSigningKeyRotation:          true,
 		signingKeyRotationToken:           strings.TrimSpace(signingKeyRotationToken),
 		enablePrivateJWTClientKeyRotation: true,
@@ -71,7 +79,16 @@ func (h *Handler) jwks(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) authorize(w http.ResponseWriter, r *http.Request) {
+	clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))
+
 	if r.Method != http.MethodGet {
+		h.audit("oidc.authorize", map[string]any{
+			"result":    "reject",
+			"reason":    "method_not_allowed",
+			"method":    r.Method,
+			"path":      r.URL.Path,
+			"client_id": clientID,
+		})
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "method must be GET",
@@ -92,15 +109,30 @@ func (h *Handler) authorize(w http.ResponseWriter, r *http.Request) {
 		q.Get("code_challenge_method"),
 	)
 	if err != nil {
+		h.audit("oidc.authorize", map[string]any{
+			"result":      "error",
+			"client_id":   clientID,
+			"oauth_error": oauthErrorCode(err),
+		})
 		h.writeOAuthError(w, err)
 		return
 	}
 
+	h.audit("oidc.authorize", map[string]any{
+		"result":    "success",
+		"client_id": clientID,
+	})
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		h.audit("oidc.token", map[string]any{
+			"result": "reject",
+			"reason": "method_not_allowed",
+			"method": r.Method,
+			"path":   r.URL.Path,
+		})
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "method must be POST",
@@ -109,6 +141,11 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := r.ParseForm(); err != nil {
+		h.audit("oidc.token", map[string]any{
+			"result":      "error",
+			"oauth_error": "invalid_request",
+			"reason":      "parse_form_failed",
+		})
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "failed to parse form payload",
@@ -117,12 +154,26 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 	}
 
 	grantType := r.PostForm.Get("grant_type")
+	formClientID := strings.TrimSpace(r.PostForm.Get("client_id"))
 	clientAuth, err := resolveTokenClientAuthentication(r)
 	if err != nil {
+		h.audit("oidc.token", map[string]any{
+			"result":      "error",
+			"grant_type":  grantType,
+			"client_id":   formClientID,
+			"oauth_error": oauthErrorCode(err),
+		})
 		h.writeOAuthError(w, err)
 		return
 	}
 	if err := h.provider.AuthenticateTokenClient(clientAuth); err != nil {
+		h.audit("oidc.token", map[string]any{
+			"result":      "error",
+			"grant_type":  grantType,
+			"client_id":   clientAuth.ClientID,
+			"auth_method": clientAuth.AuthMethod,
+			"oauth_error": oauthErrorCode(err),
+		})
 		h.writeOAuthError(w, err)
 		return
 	}
@@ -151,15 +202,33 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 		exchangeErr = &core.OAuthError{Code: "unsupported_grant_type", Description: "unsupported grant_type", Status: http.StatusBadRequest}
 	}
 	if exchangeErr != nil {
+		h.audit("oidc.token", map[string]any{
+			"result":      "error",
+			"grant_type":  grantType,
+			"client_id":   clientAuth.ClientID,
+			"auth_method": clientAuth.AuthMethod,
+			"oauth_error": oauthErrorCode(exchangeErr),
+		})
 		h.writeOAuthError(w, exchangeErr)
 		return
 	}
 
+	h.audit("oidc.token", map[string]any{
+		"result":      "success",
+		"grant_type":  grantType,
+		"client_id":   clientAuth.ClientID,
+		"auth_method": clientAuth.AuthMethod,
+	})
 	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) rotateSigningKey(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		h.audit("oidc.admin.rotate_signing_key", map[string]any{
+			"result": "reject",
+			"reason": "method_not_allowed",
+			"method": r.Method,
+		})
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "method must be POST",
@@ -168,6 +237,10 @@ func (h *Handler) rotateSigningKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.TrimSpace(h.signingKeyRotationToken) == "" {
+		h.audit("oidc.admin.rotate_signing_key", map[string]any{
+			"result": "error",
+			"reason": "token_not_configured",
+		})
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":             "server_error",
 			"error_description": "signing key rotation token is not configured",
@@ -178,6 +251,10 @@ func (h *Handler) rotateSigningKey(w http.ResponseWriter, r *http.Request) {
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	parts := strings.SplitN(authorization, " ", 2)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		h.audit("oidc.admin.rotate_signing_key", map[string]any{
+			"result": "reject",
+			"reason": "missing_or_invalid_bearer",
+		})
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":             "unauthorized",
 			"error_description": "authorization header must use bearer token",
@@ -186,6 +263,10 @@ func (h *Handler) rotateSigningKey(w http.ResponseWriter, r *http.Request) {
 	}
 	token := strings.TrimSpace(parts[1])
 	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.signingKeyRotationToken)) != 1 {
+		h.audit("oidc.admin.rotate_signing_key", map[string]any{
+			"result": "reject",
+			"reason": "invalid_bearer_token",
+		})
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":             "unauthorized",
 			"error_description": "invalid signing key rotation token",
@@ -195,17 +276,30 @@ func (h *Handler) rotateSigningKey(w http.ResponseWriter, r *http.Request) {
 
 	kid, err := h.provider.RotateSigningKey()
 	if err != nil {
+		h.audit("oidc.admin.rotate_signing_key", map[string]any{
+			"result": "error",
+			"reason": "rotate_failed",
+		})
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":             "server_error",
 			"error_description": "failed to rotate signing key",
 		})
 		return
 	}
+	h.audit("oidc.admin.rotate_signing_key", map[string]any{
+		"result": "success",
+		"kid":    kid,
+	})
 	writeJSON(w, http.StatusOK, map[string]string{"kid": kid})
 }
 
 func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
+			"result": "reject",
+			"reason": "method_not_allowed",
+			"method": r.Method,
+		})
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "method must be POST",
@@ -214,6 +308,10 @@ func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Reque
 	}
 
 	if strings.TrimSpace(h.privateJWTClientKeyRotationToken) == "" {
+		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
+			"result": "error",
+			"reason": "token_not_configured",
+		})
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":             "server_error",
 			"error_description": "private_key_jwt key rotation token is not configured",
@@ -224,6 +322,10 @@ func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Reque
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	parts := strings.SplitN(authorization, " ", 2)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
+			"result": "reject",
+			"reason": "missing_or_invalid_bearer",
+		})
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":             "unauthorized",
 			"error_description": "authorization header must use bearer token",
@@ -232,6 +334,10 @@ func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Reque
 	}
 	token := strings.TrimSpace(parts[1])
 	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.privateJWTClientKeyRotationToken)) != 1 {
+		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
+			"result": "reject",
+			"reason": "invalid_bearer_token",
+		})
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":             "unauthorized",
 			"error_description": "invalid private_key_jwt key rotation token",
@@ -244,6 +350,10 @@ func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Reque
 		PublicKeyPEM string `json:"public_key_pem"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
+			"result": "error",
+			"reason": "invalid_json",
+		})
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "request body must be valid json",
@@ -253,6 +363,10 @@ func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Reque
 	payload.ClientID = strings.TrimSpace(payload.ClientID)
 	payload.PublicKeyPEM = strings.TrimSpace(payload.PublicKeyPEM)
 	if payload.ClientID == "" || payload.PublicKeyPEM == "" {
+		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
+			"result": "error",
+			"reason": "missing_required_fields",
+		})
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "client_id and public_key_pem are required",
@@ -262,12 +376,22 @@ func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Reque
 
 	kid, err := h.provider.RotatePrivateJWTClientKey(payload.ClientID, payload.PublicKeyPEM)
 	if err != nil {
+		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
+			"result":    "error",
+			"reason":    "rotate_failed",
+			"client_id": payload.ClientID,
+		})
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "failed to rotate private_key_jwt client key",
 		})
 		return
 	}
+	h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
+		"result":    "success",
+		"client_id": payload.ClientID,
+		"kid":       kid,
+	})
 	writeJSON(w, http.StatusOK, map[string]string{"kid": kid})
 }
 
@@ -288,6 +412,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (h *Handler) audit(event string, fields map[string]any) {
+	if h.auditLogger == nil {
+		return
+	}
+	h.auditLogger.Log(event, fields)
+}
+
+func oauthErrorCode(err error) string {
+	var oauthErr *core.OAuthError
+	if errors.As(err, &oauthErr) {
+		return oauthErr.Code
+	}
+	return "server_error"
 }
 
 func resolveTokenClientAuthentication(r *http.Request) (core.TokenClientAuthentication, error) {
