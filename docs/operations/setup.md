@@ -89,6 +89,18 @@
 - 連続失敗時に `kind=audit_alert` の JSONログが標準出力に出る
 - `ENABLE_ORGANIZATION_API=true` のとき、organization API が `x-actor-sub` / `x-actor-scopes` で認可される
 
+## PR Description Rule
+- `gh pr create` / `gh pr edit` で本文を更新するときは、必ず `--body-file` を使う
+- コマンド引数で本文を直接渡さない（バッククォートや記号でシェル展開が発生し、本文崩れの原因になる）
+- 既定テンプレートは `.github/pull_request_template.md`
+
+例:
+```bash
+cp .github/pull_request_template.md /tmp/pr-body.md
+# /tmp/pr-body.md を編集
+gh pr edit <PR_NUMBER> --body-file /tmp/pr-body.md
+```
+
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール
 - `HTTP 404` on discovery: `/.well-known/openid-configuration` の実装漏れ
