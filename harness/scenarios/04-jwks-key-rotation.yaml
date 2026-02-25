@@ -1,0 +1,11 @@
+id: jwks-key-rotation
+priority: p1
+objective: 署名鍵ローテーション時に JWKS 公開が整合すること
+steps:
+  - 新鍵を active に昇格
+  - JWKS を取得
+  - 旧鍵の段階的無効化を確認
+expect:
+  - JWKS に active 鍵が含まれる
+  - kid 衝突がない
+  - grace period 後に旧鍵が除外される

@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  repository-health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Verify harness script syntax
+        run: bash -n scripts/harness_smoke.sh
+      - name: Verify required files
+        run: |
+          test -f AGENTS.md
+          test -f docs/index.md
+          test -f docs/spec/idp-core-requirements.md
+          test -f harness/scenarios/01-oidc-discovery.yaml
+          test -f harness/scenarios/02-auth-code-pkce.yaml
+          test -f harness/scenarios/03-token-refresh-rotation.yaml
+          test -f scripts/harness_smoke.sh
