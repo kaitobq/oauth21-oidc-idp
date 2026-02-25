@@ -1,0 +1,10 @@
+id: token-error-contract
+priority: p1
+objective: token endpoint が標準的なエラーフォーマットを返すこと
+steps:
+  - 不正 client 認証で token endpoint を呼ぶ
+  - 不正 code で token endpoint を呼ぶ
+expect:
+  - HTTP ステータスと JSON エラーが整合する
+  - error と error_description が返る
+  - 内部実装詳細を露出しない

@@ -1,0 +1,12 @@
+id: refresh-token-rotation
+priority: p1
+objective: Refresh Token Rotation が有効で、再利用を検知できること
+preconditions:
+  - offline_access が有効
+steps:
+  - refresh_token でトークン更新
+  - 旧 refresh_token を再利用
+expect:
+  - 1回目は成功
+  - 旧トークン再利用は拒否
+  - 監査ログに再利用検知イベントを記録

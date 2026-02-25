@@ -1,0 +1,15 @@
+id: auth-code-pkce
+priority: p0
+objective: Authorization Code + PKCE(S256) が成立すること
+preconditions:
+  - テストクライアントが登録済み
+  - redirect_uri が許可済み
+steps:
+  - 認可リクエストを code_challenge=S256 付きで送信
+  - code を受け取り token endpoint へ code_verifier を送信
+expect:
+  - access_token が発行される
+  - openid scope を要求した場合 id_token が発行される
+negative_cases:
+  - code_verifier なしは invalid_request または同等エラー
+  - 不一致 code_verifier は invalid_grant

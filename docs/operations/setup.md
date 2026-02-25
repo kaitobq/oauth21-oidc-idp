@@ -1,0 +1,29 @@
+# Operations Setup
+
+## Prerequisites
+- macOS / Linux
+- `bash`, `curl`, `jq`
+- ローカルで起動できる IDP 実装
+
+## Initial Setup
+1. リポジトリルートへ移動
+2. 実行権限付与
+   ```bash
+   make bootstrap
+   ```
+3. IDP をローカル起動
+4. harness 実行
+   ```bash
+   BASE_URL=http://localhost:8080 make harness-smoke
+   ```
+
+## Verification Checklist
+- discovery endpoint が 200 を返す
+- discovery に `issuer`, `jwks_uri`, `authorization_endpoint`, `token_endpoint` が含まれる
+- JWKS endpoint が `keys` 配列を返す
+- `grant_types_supported` に `password` が含まれない
+
+## Troubleshooting
+- `jq command not found`: `jq` をインストール
+- `HTTP 404` on discovery: `/.well-known/openid-configuration` の実装漏れ
+- `JWKS keys array is empty`: 鍵生成・公開設定を確認
