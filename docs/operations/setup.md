@@ -36,6 +36,7 @@
    BASE_URL=http://localhost:8080 make harness-auth-code-pkce
    BASE_URL=http://localhost:8080 make harness-refresh-rotation
    BASE_URL=http://localhost:8080 make harness-id-token-claims
+   BASE_URL=http://localhost:8080 make harness-userinfo
    BASE_URL=http://localhost:8080 make harness-client-secret-basic
    BASE_URL=http://localhost:8080 make harness-private-key-jwt
    BASE_URL=http://localhost:8080 make harness-private-jwt-replay-protection
@@ -62,6 +63,9 @@
 - `id_token` が `azp` を含み、`client_id` と一致する
 - `id_token` が `sid` を含み、refresh 後も同一値を維持する
 - `id_token` が `acr` / `amr` を含む
+- `userinfo` が有効な Bearer token で `sub` を返す
+- 無効な `access_token` で `401` / `invalid_token` を返す
+- `openid` を含まない token で `403` / `insufficient_scope` を返す
 - confidential client が `client_secret_basic` で token 交換できる
 - 不正な Basic 認証が `401` / `invalid_client` で拒否される
 - confidential client が `private_key_jwt` で token 交換できる

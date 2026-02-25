@@ -62,6 +62,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/oauth2/jwks", h.jwks)
 	mux.HandleFunc("/oauth2/authorize", h.authorize)
 	mux.HandleFunc("/oauth2/token", h.token)
+	mux.HandleFunc("/oauth2/userinfo", h.userInfo)
 	if h.enableSigningKeyRotation {
 		mux.HandleFunc("/oauth2/admin/rotate-signing-key", h.rotateSigningKey)
 	}
@@ -218,6 +219,47 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 		"grant_type":  grantType,
 		"client_id":   clientAuth.ClientID,
 		"auth_method": clientAuth.AuthMethod,
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		h.audit("oidc.userinfo", map[string]any{
+			"result": "reject",
+			"reason": "method_not_allowed",
+			"method": r.Method,
+			"path":   r.URL.Path,
+		})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+			"error":             "invalid_request",
+			"error_description": "method must be GET or POST",
+		})
+		return
+	}
+
+	accessToken, err := resolveBearerToken(r.Header.Get("Authorization"))
+	if err != nil {
+		h.audit("oidc.userinfo", map[string]any{
+			"result":      "error",
+			"oauth_error": oauthErrorCode(err),
+		})
+		h.writeBearerOAuthError(w, err)
+		return
+	}
+
+	resp, err := h.provider.UserInfo(accessToken)
+	if err != nil {
+		h.audit("oidc.userinfo", map[string]any{
+			"result":      "error",
+			"oauth_error": oauthErrorCode(err),
+		})
+		h.writeBearerOAuthError(w, err)
+		return
+	}
+
+	h.audit("oidc.userinfo", map[string]any{
+		"result": "success",
 	})
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -408,6 +450,22 @@ func (h *Handler) writeOAuthError(w http.ResponseWriter, err error) {
 	})
 }
 
+func (h *Handler) writeBearerOAuthError(w http.ResponseWriter, err error) {
+	var oauthErr *core.OAuthError
+	if errors.As(err, &oauthErr) {
+		if oauthErr.Code == "invalid_token" || oauthErr.Code == "insufficient_scope" {
+			w.Header().Set("WWW-Authenticate", bearerWWWAuthenticateHeader(oauthErr.Code, oauthErr.Description))
+		}
+		writeJSON(w, oauthErr.Status, oauthErr.Response())
+		return
+	}
+
+	writeJSON(w, http.StatusInternalServerError, map[string]string{
+		"error":             "server_error",
+		"error_description": "internal server error",
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -525,4 +583,47 @@ func resolveTokenClientAuthentication(r *http.Request) (core.TokenClientAuthenti
 		AuthMethod:   core.TokenEndpointAuthMethodBasic,
 		ClientSecret: clientSecret,
 	}, nil
+}
+
+func resolveBearerToken(authorization string) (string, error) {
+	authorization = strings.TrimSpace(authorization)
+	if authorization == "" {
+		return "", &core.OAuthError{
+			Code:        "invalid_token",
+			Description: "authorization header must use bearer token",
+			Status:      http.StatusUnauthorized,
+		}
+	}
+
+	parts := strings.SplitN(authorization, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return "", &core.OAuthError{
+			Code:        "invalid_token",
+			Description: "authorization header must use bearer token",
+			Status:      http.StatusUnauthorized,
+		}
+	}
+	token := strings.TrimSpace(parts[1])
+	if token == "" {
+		return "", &core.OAuthError{
+			Code:        "invalid_token",
+			Description: "bearer token must not be empty",
+			Status:      http.StatusUnauthorized,
+		}
+	}
+	return token, nil
+}
+
+func bearerWWWAuthenticateHeader(code, description string) string {
+	code = strings.TrimSpace(code)
+	description = strings.TrimSpace(description)
+
+	header := `Bearer realm="oauth2/userinfo"`
+	if code != "" {
+		header += `, error="` + strings.ReplaceAll(code, `"`, `'`) + `"`
+	}
+	if description != "" {
+		header += `, error_description="` + strings.ReplaceAll(description, `"`, `'`) + `"`
+	}
+	return header
 }

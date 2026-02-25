@@ -72,6 +72,7 @@ type Provider struct {
 	clients                 map[string]*client
 	usedClientAssertionJTIs map[string]map[string]int64
 	authCodes               map[string]*authorizationCode
+	accessTokens            map[string]*accessTokenGrant
 	tokens                  map[string]*refreshTokenGrant
 }
 
@@ -146,6 +147,14 @@ type refreshTokenGrant struct {
 	Used            bool
 }
 
+type accessTokenGrant struct {
+	Token     string
+	ClientID  string
+	Subject   string
+	Scope     string
+	ExpiresAt time.Time
+}
+
 type jwks struct {
 	Keys []jwk `json:"keys"`
 }
@@ -163,6 +172,7 @@ type discoveryDocument struct {
 	Issuer                            string   `json:"issuer"`
 	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
 	TokenEndpoint                     string   `json:"token_endpoint"`
+	UserInfoEndpoint                  string   `json:"userinfo_endpoint,omitempty"`
 	JWKSURI                           string   `json:"jwks_uri"`
 	ResponseTypesSupported            []string `json:"response_types_supported"`
 	GrantTypesSupported               []string `json:"grant_types_supported"`
@@ -182,6 +192,14 @@ type TokenResponse struct {
 	Scope        string `json:"scope,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	IDToken      string `json:"id_token,omitempty"`
+}
+
+type UserInfoResponse struct {
+	Sub               string `json:"sub"`
+	Name              string `json:"name,omitempty"`
+	PreferredUsername string `json:"preferred_username,omitempty"`
+	Email             string `json:"email,omitempty"`
+	EmailVerified     bool   `json:"email_verified,omitempty"`
 }
 
 // NewProvider initializes a signing key and in-memory state.
@@ -223,6 +241,7 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 		},
 		usedClientAssertionJTIs: map[string]map[string]int64{},
 		authCodes:               map[string]*authorizationCode{},
+		accessTokens:            map[string]*accessTokenGrant{},
 		tokens:                  map[string]*refreshTokenGrant{},
 	}
 
@@ -242,6 +261,7 @@ func (p *Provider) Discovery() discoveryDocument {
 		Issuer:                p.issuer,
 		AuthorizationEndpoint: p.issuer + "/oauth2/authorize",
 		TokenEndpoint:         p.issuer + "/oauth2/token",
+		UserInfoEndpoint:      p.issuer + "/oauth2/userinfo",
 		JWKSURI:               p.issuer + "/oauth2/jwks",
 		ResponseTypesSupported: []string{
 			"code",
@@ -309,6 +329,45 @@ func (p *Provider) supportedTokenEndpointAuthMethods() []string {
 		}
 	}
 	return ordered
+}
+
+func (p *Provider) UserInfo(accessToken string) (*UserInfoResponse, error) {
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return nil, &OAuthError{Code: "invalid_token", Description: "access_token is required", Status: 401}
+	}
+
+	p.mu.Lock()
+	entry, ok := p.accessTokens[accessToken]
+	if !ok {
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_token", Description: "access token is invalid", Status: 401}
+	}
+	if time.Now().UTC().After(entry.ExpiresAt) {
+		delete(p.accessTokens, accessToken)
+		p.mu.Unlock()
+		return nil, &OAuthError{Code: "invalid_token", Description: "access token has expired", Status: 401}
+	}
+	subject := entry.Subject
+	scope := entry.Scope
+	p.mu.Unlock()
+
+	if !hasScope(scope, "openid") {
+		return nil, &OAuthError{Code: "insufficient_scope", Description: "openid scope is required", Status: 403}
+	}
+
+	resp := &UserInfoResponse{
+		Sub: subject,
+	}
+	if hasScope(scope, "profile") {
+		resp.Name = "Local Dev User"
+		resp.PreferredUsername = "local-dev-user"
+	}
+	if hasScope(scope, "email") {
+		resp.Email = "local-dev-user@example.com"
+		resp.EmailVerified = true
+	}
+	return resp, nil
 }
 
 func (p *Provider) RotateSigningKey() (string, error) {
@@ -691,6 +750,15 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 		ExpiresIn:   accessTokenTTLSeconds,
 		Scope:       scope,
 	}
+	p.mu.Lock()
+	p.accessTokens[accessToken] = &accessTokenGrant{
+		Token:     accessToken,
+		ClientID:  clientID,
+		Subject:   subject,
+		Scope:     scope,
+		ExpiresAt: time.Now().UTC().Add(time.Duration(accessTokenTTLSeconds) * time.Second),
+	}
+	p.mu.Unlock()
 
 	if hasScope(scope, "offline_access") {
 		refreshToken, err := randomToken(32)
@@ -804,6 +872,15 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 		Scope:        issuedScope,
 		RefreshToken: nextRefreshToken,
 	}
+	p.mu.Lock()
+	p.accessTokens[accessToken] = &accessTokenGrant{
+		Token:     accessToken,
+		ClientID:  clientID,
+		Subject:   subject,
+		Scope:     issuedScope,
+		ExpiresAt: time.Now().UTC().Add(time.Duration(accessTokenTTLSeconds) * time.Second),
+	}
+	p.mu.Unlock()
 
 	if hasScope(issuedScope, "openid") {
 		idToken, err := p.signIDToken(subject, clientID, "", acr, amr, authenticatedAt, sessionID, accessToken)

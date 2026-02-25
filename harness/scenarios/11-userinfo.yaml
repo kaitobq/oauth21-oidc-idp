@@ -1,0 +1,15 @@
+id: userinfo
+priority: p1
+objective: userinfo endpoint が Bearer access_token を検証し、openid scope 付きトークンで subject claim を返却すること
+preconditions:
+  - authorization_code + pkce が有効
+  - token endpoint が access_token を発行できる
+steps:
+  - openid profile email scope で code を取得し access_token を発行する
+  - /oauth2/userinfo に Bearer access_token を渡して `sub` を取得する
+  - 無効な access_token を渡して `invalid_token` を確認する
+  - openid を含まない scope の access_token を渡して `insufficient_scope` を確認する
+expect:
+  - 正常系は 200 で `sub` を含む JSON を返す
+  - 無効 token は 401 / `invalid_token` を返す
+  - scope 不足は 403 / `insufficient_scope` を返す

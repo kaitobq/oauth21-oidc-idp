@@ -63,7 +63,7 @@ func TestDiscoveryEndpoint(t *testing.T) {
 		t.Fatalf("invalid json: %v", err)
 	}
 
-	for _, f := range []string{"issuer", "jwks_uri", "authorization_endpoint", "token_endpoint", "grant_types_supported", "code_challenge_methods_supported"} {
+	for _, f := range []string{"issuer", "jwks_uri", "authorization_endpoint", "token_endpoint", "userinfo_endpoint", "grant_types_supported", "code_challenge_methods_supported"} {
 		if _, ok := doc[f]; !ok {
 			t.Fatalf("missing field: %s", f)
 		}
@@ -578,6 +578,181 @@ func TestTokenFlowWithPrivateKeyJWTReplayAssertion(t *testing.T) {
 	if errResp["error"] != "invalid_client" {
 		t.Fatalf("expected invalid_client, got %s", errResp["error"])
 	}
+}
+
+func TestUserInfoEndpoint(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+	h := NewHandler(provider)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	codeChallenge := pkceS256(testCodeVerifier)
+	authReq := httptest.NewRequest(
+		http.MethodGet,
+		"/oauth2/authorize?response_type=code&client_id="+url.QueryEscape(testClientID)+
+			"&redirect_uri="+url.QueryEscape(testRedirectURI)+
+			"&scope="+url.QueryEscape("openid profile email")+
+			"&state="+url.QueryEscape("handler-userinfo-state")+
+			"&code_challenge="+url.QueryEscape(codeChallenge)+
+			"&code_challenge_method=S256",
+		nil,
+	)
+	authRec := httptest.NewRecorder()
+	mux.ServeHTTP(authRec, authReq)
+	if authRec.Code != http.StatusFound {
+		t.Fatalf("expected 302 for authorize, got %d", authRec.Code)
+	}
+	code := queryParam(t, authRec.Header().Get("Location"), "code")
+	if code == "" {
+		t.Fatalf("authorize redirect must include code")
+	}
+
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {testRedirectURI},
+		"client_id":     {testClientID},
+		"code_verifier": {testCodeVerifier},
+	}
+	tokenReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tokenRec := httptest.NewRecorder()
+	mux.ServeHTTP(tokenRec, tokenReq)
+	if tokenRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for token, got %d", tokenRec.Code)
+	}
+	var tokenResp map[string]any
+	if err := json.Unmarshal(tokenRec.Body.Bytes(), &tokenResp); err != nil {
+		t.Fatalf("invalid token json: %v", err)
+	}
+	accessToken, ok := tokenResp["access_token"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("access_token must not be empty")
+	}
+
+	userInfoReq := httptest.NewRequest(http.MethodGet, "/oauth2/userinfo", nil)
+	userInfoReq.Header.Set("Authorization", "Bearer "+accessToken)
+	userInfoRec := httptest.NewRecorder()
+	mux.ServeHTTP(userInfoRec, userInfoReq)
+	if userInfoRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for userinfo, got %d", userInfoRec.Code)
+	}
+	var userInfo map[string]any
+	if err := json.Unmarshal(userInfoRec.Body.Bytes(), &userInfo); err != nil {
+		t.Fatalf("invalid userinfo json: %v", err)
+	}
+	if userInfo["sub"] == "" {
+		t.Fatalf("userinfo response must include sub")
+	}
+	if userInfo["name"] == "" {
+		t.Fatalf("userinfo response must include name with profile scope")
+	}
+	if userInfo["email"] == "" {
+		t.Fatalf("userinfo response must include email with email scope")
+	}
+}
+
+func TestUserInfoEndpointRejectsInvalidTokenAndInsufficientScope(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	privateKeyPEM := mustGenerateTestPrivateKeyPEM(t)
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, privateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+	h := NewHandler(provider)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	invalidReq := httptest.NewRequest(http.MethodGet, "/oauth2/userinfo", nil)
+	invalidReq.Header.Set("Authorization", "Bearer invalid-token")
+	invalidRec := httptest.NewRecorder()
+	mux.ServeHTTP(invalidRec, invalidReq)
+	if invalidRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for invalid token, got %d", invalidRec.Code)
+	}
+	if header := invalidRec.Header().Get("WWW-Authenticate"); !strings.Contains(header, `error="invalid_token"`) {
+		t.Fatalf("WWW-Authenticate must include invalid_token, got %q", header)
+	}
+	assertTokenErrorContract(t, invalidRec, http.StatusUnauthorized, "invalid_token")
+
+	codeChallenge := pkceS256(testCodeVerifier)
+	authReq := httptest.NewRequest(
+		http.MethodGet,
+		"/oauth2/authorize?response_type=code&client_id="+url.QueryEscape(testClientID)+
+			"&redirect_uri="+url.QueryEscape(testRedirectURI)+
+			"&scope="+url.QueryEscape("profile")+
+			"&state="+url.QueryEscape("handler-userinfo-no-openid-state")+
+			"&code_challenge="+url.QueryEscape(codeChallenge)+
+			"&code_challenge_method=S256",
+		nil,
+	)
+	authRec := httptest.NewRecorder()
+	mux.ServeHTTP(authRec, authReq)
+	if authRec.Code != http.StatusFound {
+		t.Fatalf("expected 302 for authorize, got %d", authRec.Code)
+	}
+	code := queryParam(t, authRec.Header().Get("Location"), "code")
+	if code == "" {
+		t.Fatalf("authorize redirect must include code")
+	}
+
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {testRedirectURI},
+		"client_id":     {testClientID},
+		"code_verifier": {testCodeVerifier},
+	}
+	tokenReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tokenRec := httptest.NewRecorder()
+	mux.ServeHTTP(tokenRec, tokenReq)
+	if tokenRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for token, got %d", tokenRec.Code)
+	}
+	var tokenResp map[string]any
+	if err := json.Unmarshal(tokenRec.Body.Bytes(), &tokenResp); err != nil {
+		t.Fatalf("invalid token json: %v", err)
+	}
+	accessToken, ok := tokenResp["access_token"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("access_token must not be empty")
+	}
+
+	scopeReq := httptest.NewRequest(http.MethodGet, "/oauth2/userinfo", nil)
+	scopeReq.Header.Set("Authorization", "Bearer "+accessToken)
+	scopeRec := httptest.NewRecorder()
+	mux.ServeHTTP(scopeRec, scopeReq)
+	if scopeRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for insufficient scope, got %d", scopeRec.Code)
+	}
+	if header := scopeRec.Header().Get("WWW-Authenticate"); !strings.Contains(header, `error="insufficient_scope"`) {
+		t.Fatalf("WWW-Authenticate must include insufficient_scope, got %q", header)
+	}
+	assertTokenErrorContract(t, scopeRec, http.StatusForbidden, "insufficient_scope")
 }
 
 func TestTokenErrorContract(t *testing.T) {

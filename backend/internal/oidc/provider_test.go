@@ -40,6 +40,9 @@ func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	if d.JWKSURI == "" {
 		t.Fatalf("jwks_uri must not be empty")
 	}
+	if d.UserInfoEndpoint == "" {
+		t.Fatalf("userinfo_endpoint must not be empty")
+	}
 
 	if contains(d.GrantTypesSupported, "password") {
 		t.Fatalf("grant_types_supported must not include password")
@@ -681,6 +684,107 @@ func TestRefreshTokenRejectInvalidScope(t *testing.T) {
 		t.Fatalf("refresh exchange with scope escalation must fail")
 	}
 	assertOAuthError(t, err, "invalid_scope")
+}
+
+func TestUserInfo(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	redirectURL, err := provider.Authorize(
+		"code",
+		testClientID,
+		testRedirectURI,
+		"openid profile email",
+		"state-userinfo",
+		"",
+		"",
+		pkceS256(testCodeVerifier),
+		"S256",
+	)
+	if err != nil {
+		t.Fatalf("Authorize error: %v", err)
+	}
+	code := queryParam(t, redirectURL, "code")
+
+	tokenResp, err := provider.ExchangeAuthorizationCode(
+		"authorization_code",
+		code,
+		testRedirectURI,
+		testClientID,
+		testCodeVerifier,
+	)
+	if err != nil {
+		t.Fatalf("ExchangeAuthorizationCode error: %v", err)
+	}
+	if tokenResp.AccessToken == "" {
+		t.Fatalf("access token must not be empty")
+	}
+
+	userInfo, err := provider.UserInfo(tokenResp.AccessToken)
+	if err != nil {
+		t.Fatalf("UserInfo error: %v", err)
+	}
+	if userInfo.Sub == "" {
+		t.Fatalf("userinfo sub must not be empty")
+	}
+	if userInfo.Name == "" {
+		t.Fatalf("userinfo name must not be empty with profile scope")
+	}
+	if userInfo.Email == "" || !userInfo.EmailVerified {
+		t.Fatalf("userinfo email claims must be present with email scope")
+	}
+}
+
+func TestUserInfoRejectInvalidTokenAndInsufficientScope(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	_, err = provider.UserInfo("invalid-token")
+	if err == nil {
+		t.Fatalf("UserInfo with invalid token must fail")
+	}
+	assertOAuthError(t, err, "invalid_token")
+
+	redirectURL, err := provider.Authorize(
+		"code",
+		testClientID,
+		testRedirectURI,
+		"profile",
+		"state-userinfo-no-openid",
+		"",
+		"",
+		pkceS256(testCodeVerifier),
+		"S256",
+	)
+	if err != nil {
+		t.Fatalf("Authorize error: %v", err)
+	}
+	code := queryParam(t, redirectURL, "code")
+
+	tokenResp, err := provider.ExchangeAuthorizationCode(
+		"authorization_code",
+		code,
+		testRedirectURI,
+		testClientID,
+		testCodeVerifier,
+	)
+	if err != nil {
+		t.Fatalf("ExchangeAuthorizationCode error: %v", err)
+	}
+
+	_, err = provider.UserInfo(tokenResp.AccessToken)
+	if err == nil {
+		t.Fatalf("UserInfo without openid scope must fail")
+	}
+	assertOAuthError(t, err, "insufficient_scope")
 }
 
 func TestAuthorizeRejectUnsupportedACRValues(t *testing.T) {
