@@ -44,8 +44,9 @@ OAuth 2.1 / OIDC の基本要件を満たす IDP を実装し、相互運用性�
 
 ### 4. Security & Operations
 1. 署名鍵ローテーション手順を定義する。
-2. 認可・トークン発行イベントを監査ログに記録する。
-3. harness で discovery/JWKS/基本フローの回帰検証を継続する。
+2. 管理 API は認可方式を持ち、操作権限を分離できること（例: scope）。
+3. 認可・トークン発行イベントを監査ログに記録する。
+4. harness で discovery/JWKS/基本フローの回帰検証を継続する。
 
 ## Definition of Done (Phase 1)
 - discovery endpoint が 200 を返し、必須メタデータを含む。

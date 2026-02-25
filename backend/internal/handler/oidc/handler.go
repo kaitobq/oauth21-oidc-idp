@@ -1,7 +1,6 @@
 package oidc
 
 import (
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -9,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/audit"
+	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/handler/middleware"
 	core "github.com/kaitobq/oauth21-oidc-idp/backend/internal/oidc"
 )
 
@@ -19,42 +19,87 @@ type Handler struct {
 	signingKeyRotationToken           string
 	enablePrivateJWTClientKeyRotation bool
 	privateJWTClientKeyRotationToken  string
+	adminAuthMode                     string
+	adminJWTSecret                    string
+	adminJWTIssuer                    string
+	adminJWTAudience                  string
+}
+
+func newHandler(provider *core.Provider) *Handler {
+	return &Handler{
+		provider:      provider,
+		auditLogger:   audit.New(),
+		adminAuthMode: middleware.AdminAuthModeStatic,
+	}
 }
 
 func NewHandler(provider *core.Provider) *Handler {
-	return &Handler{
-		provider:    provider,
-		auditLogger: audit.New(),
-	}
+	return newHandler(provider)
 }
 
 func NewHandlerWithSigningKeyRotation(provider *core.Provider, rotationToken string) *Handler {
-	return &Handler{
-		provider:                 provider,
-		auditLogger:              audit.New(),
-		enableSigningKeyRotation: true,
-		signingKeyRotationToken:  strings.TrimSpace(rotationToken),
-	}
+	return NewHandlerWithSigningKeyRotationAuth(provider, rotationToken, middleware.AdminAuthModeStatic, "", "", "")
 }
 
 func NewHandlerWithPrivateJWTClientKeyRotation(provider *core.Provider, rotationToken string) *Handler {
-	return &Handler{
-		provider:                          provider,
-		auditLogger:                       audit.New(),
-		enablePrivateJWTClientKeyRotation: true,
-		privateJWTClientKeyRotationToken:  strings.TrimSpace(rotationToken),
-	}
+	return NewHandlerWithPrivateJWTClientKeyRotationAuth(provider, rotationToken, middleware.AdminAuthModeStatic, "", "", "")
 }
 
 func NewHandlerWithAdminAPIs(provider *core.Provider, signingKeyRotationToken, privateJWTClientKeyRotationToken string) *Handler {
-	return &Handler{
-		provider:                          provider,
-		auditLogger:                       audit.New(),
-		enableSigningKeyRotation:          true,
-		signingKeyRotationToken:           strings.TrimSpace(signingKeyRotationToken),
-		enablePrivateJWTClientKeyRotation: true,
-		privateJWTClientKeyRotationToken:  strings.TrimSpace(privateJWTClientKeyRotationToken),
-	}
+	return NewHandlerWithAdminAPIsAuth(
+		provider,
+		signingKeyRotationToken,
+		privateJWTClientKeyRotationToken,
+		middleware.AdminAuthModeStatic,
+		"",
+		"",
+		"",
+	)
+}
+
+func NewHandlerWithSigningKeyRotationAuth(
+	provider *core.Provider,
+	rotationToken, adminAuthMode, adminJWTSecret, adminJWTIssuer, adminJWTAudience string,
+) *Handler {
+	h := newHandler(provider)
+	h.enableSigningKeyRotation = true
+	h.signingKeyRotationToken = strings.TrimSpace(rotationToken)
+	h.adminAuthMode = strings.TrimSpace(adminAuthMode)
+	h.adminJWTSecret = strings.TrimSpace(adminJWTSecret)
+	h.adminJWTIssuer = strings.TrimSpace(adminJWTIssuer)
+	h.adminJWTAudience = strings.TrimSpace(adminJWTAudience)
+	return h
+}
+
+func NewHandlerWithPrivateJWTClientKeyRotationAuth(
+	provider *core.Provider,
+	rotationToken, adminAuthMode, adminJWTSecret, adminJWTIssuer, adminJWTAudience string,
+) *Handler {
+	h := newHandler(provider)
+	h.enablePrivateJWTClientKeyRotation = true
+	h.privateJWTClientKeyRotationToken = strings.TrimSpace(rotationToken)
+	h.adminAuthMode = strings.TrimSpace(adminAuthMode)
+	h.adminJWTSecret = strings.TrimSpace(adminJWTSecret)
+	h.adminJWTIssuer = strings.TrimSpace(adminJWTIssuer)
+	h.adminJWTAudience = strings.TrimSpace(adminJWTAudience)
+	return h
+}
+
+func NewHandlerWithAdminAPIsAuth(
+	provider *core.Provider,
+	signingKeyRotationToken, privateJWTClientKeyRotationToken string,
+	adminAuthMode, adminJWTSecret, adminJWTIssuer, adminJWTAudience string,
+) *Handler {
+	h := newHandler(provider)
+	h.enableSigningKeyRotation = true
+	h.signingKeyRotationToken = strings.TrimSpace(signingKeyRotationToken)
+	h.enablePrivateJWTClientKeyRotation = true
+	h.privateJWTClientKeyRotationToken = strings.TrimSpace(privateJWTClientKeyRotationToken)
+	h.adminAuthMode = strings.TrimSpace(adminAuthMode)
+	h.adminJWTSecret = strings.TrimSpace(adminJWTSecret)
+	h.adminJWTIssuer = strings.TrimSpace(adminJWTIssuer)
+	h.adminJWTAudience = strings.TrimSpace(adminJWTAudience)
+	return h
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -64,10 +109,30 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/oauth2/token", h.token)
 	mux.HandleFunc("/oauth2/userinfo", h.userInfo)
 	if h.enableSigningKeyRotation {
-		mux.HandleFunc("/oauth2/admin/rotate-signing-key", h.rotateSigningKey)
+		mux.Handle(
+			"/oauth2/admin/rotate-signing-key",
+			middleware.AdminAuth(middleware.AdminAuthConfig{
+				Mode:        h.adminAuthMode,
+				StaticToken: h.signingKeyRotationToken,
+				JWTSecret:   h.adminJWTSecret,
+				JWTIssuer:   h.adminJWTIssuer,
+				JWTAudience: h.adminJWTAudience,
+				Methods:     []string{http.MethodPost},
+			}, middleware.ScopeRotateSigningKey)(http.HandlerFunc(h.rotateSigningKey)),
+		)
 	}
 	if h.enablePrivateJWTClientKeyRotation {
-		mux.HandleFunc("/oauth2/admin/rotate-private-jwt-client-key", h.rotatePrivateJWTClientKey)
+		mux.Handle(
+			"/oauth2/admin/rotate-private-jwt-client-key",
+			middleware.AdminAuth(middleware.AdminAuthConfig{
+				Mode:        h.adminAuthMode,
+				StaticToken: h.privateJWTClientKeyRotationToken,
+				JWTSecret:   h.adminJWTSecret,
+				JWTIssuer:   h.adminJWTIssuer,
+				JWTAudience: h.adminJWTAudience,
+				Methods:     []string{http.MethodPost},
+			}, middleware.ScopeRotatePrivateJWTClientKey)(http.HandlerFunc(h.rotatePrivateJWTClientKey)),
+		)
 	}
 }
 
@@ -278,44 +343,6 @@ func (h *Handler) rotateSigningKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(h.signingKeyRotationToken) == "" {
-		h.audit("oidc.admin.rotate_signing_key", map[string]any{
-			"result": "error",
-			"reason": "token_not_configured",
-		})
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error":             "server_error",
-			"error_description": "signing key rotation token is not configured",
-		})
-		return
-	}
-
-	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-	parts := strings.SplitN(authorization, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		h.audit("oidc.admin.rotate_signing_key", map[string]any{
-			"result": "reject",
-			"reason": "missing_or_invalid_bearer",
-		})
-		writeJSON(w, http.StatusUnauthorized, map[string]string{
-			"error":             "unauthorized",
-			"error_description": "authorization header must use bearer token",
-		})
-		return
-	}
-	token := strings.TrimSpace(parts[1])
-	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.signingKeyRotationToken)) != 1 {
-		h.audit("oidc.admin.rotate_signing_key", map[string]any{
-			"result": "reject",
-			"reason": "invalid_bearer_token",
-		})
-		writeJSON(w, http.StatusUnauthorized, map[string]string{
-			"error":             "unauthorized",
-			"error_description": "invalid signing key rotation token",
-		})
-		return
-	}
-
 	kid, err := h.provider.RotateSigningKey()
 	if err != nil {
 		h.audit("oidc.admin.rotate_signing_key", map[string]any{
@@ -345,44 +372,6 @@ func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
 			"error":             "invalid_request",
 			"error_description": "method must be POST",
-		})
-		return
-	}
-
-	if strings.TrimSpace(h.privateJWTClientKeyRotationToken) == "" {
-		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
-			"result": "error",
-			"reason": "token_not_configured",
-		})
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error":             "server_error",
-			"error_description": "private_key_jwt key rotation token is not configured",
-		})
-		return
-	}
-
-	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-	parts := strings.SplitN(authorization, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
-			"result": "reject",
-			"reason": "missing_or_invalid_bearer",
-		})
-		writeJSON(w, http.StatusUnauthorized, map[string]string{
-			"error":             "unauthorized",
-			"error_description": "authorization header must use bearer token",
-		})
-		return
-	}
-	token := strings.TrimSpace(parts[1])
-	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.privateJWTClientKeyRotationToken)) != 1 {
-		h.audit("oidc.admin.rotate_private_jwt_client_key", map[string]any{
-			"result": "reject",
-			"reason": "invalid_bearer_token",
-		})
-		writeJSON(w, http.StatusUnauthorized, map[string]string{
-			"error":             "unauthorized",
-			"error_description": "invalid private_key_jwt key rotation token",
 		})
 		return
 	}

@@ -102,6 +102,9 @@ BASE_URL=http://localhost:8080 OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN=dev-private-j
 
 # Validate signing key rotation API + JWKS reflection
 BASE_URL=http://localhost:8080 OIDC_SIGNING_KEY_ROTATION_TOKEN=dev-signing-key-rotation-token make harness-signing-key-rotation
+
+# Validate admin API JWT scope authorization
+BASE_URL=http://localhost:8080 OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true OIDC_ADMIN_AUTH_MODE=jwt OIDC_ADMIN_JWT_HS256_SECRET=dev-admin-jwt-secret OIDC_ADMIN_JWT_ISS=harness-admin OIDC_ADMIN_JWT_AUD=oidc-admin make harness-admin-auth-jwt
 ```
 
 ### Local Clients
@@ -125,10 +128,18 @@ BASE_URL=http://localhost:8080 OIDC_SIGNING_KEY_ROTATION_TOKEN=dev-signing-key-r
 - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/local/private_jwt_client_public.pem`）
 - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM`（任意。設定時は `*_PATH` より優先）
 - `OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH`（harness 用。default: `harness/keys/local/private_jwt_client_private.pem`）
+- `OIDC_ADMIN_AUTH_MODE`（default: `static`。`static` / `jwt`）
+- `OIDC_ADMIN_JWT_HS256_SECRET`（`OIDC_ADMIN_AUTH_MODE=jwt` 時に必須）
+- `OIDC_ADMIN_JWT_ISS`（任意。設定時は JWT `iss` と一致必須）
+- `OIDC_ADMIN_JWT_AUD`（default: `oidc-admin`。設定時は JWT `aud` と一致必須）
 - `OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API`（default: `false`）
 - `OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN`（default: `dev-private-jwt-key-rotation-token`）
 - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API`（default: `false`）
 - `OIDC_SIGNING_KEY_ROTATION_TOKEN`（default: `dev-signing-key-rotation-token`）
+
+`OIDC_ADMIN_AUTH_MODE=jwt` の場合、管理 API Bearer token は HS256 JWT として検証されます。必要 scope は以下です。
+- `/oauth2/admin/rotate-signing-key`: `oidc.admin.rotate_signing_key`
+- `/oauth2/admin/rotate-private-jwt-client-key`: `oidc.admin.rotate_private_jwt_client_key`
 
 `make bootstrap` は `private_key_jwt` 用の開発鍵ペアをローカルに自動生成します。
 

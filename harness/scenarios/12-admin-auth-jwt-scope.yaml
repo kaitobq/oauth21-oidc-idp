@@ -1,0 +1,13 @@
+id: admin-auth-jwt-scope
+priority: p1
+objective: 管理 API が JWT Bearer token の scope を検証し、操作ごとの権限分離を強制すること
+preconditions:
+  - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true`
+  - `OIDC_ADMIN_AUTH_MODE=jwt`
+  - `OIDC_ADMIN_JWT_HS256_SECRET` が設定されている
+steps:
+  - `oidc.admin.rotate_private_jwt_client_key` scope の JWT で `/oauth2/admin/rotate-signing-key` を呼び出す
+  - `oidc.admin.rotate_signing_key` scope の JWT で `/oauth2/admin/rotate-signing-key` を呼び出す
+expect:
+  - scope 不足は 403 / `forbidden` で拒否される
+  - 正しい scope では 200 で `kid` が返る
