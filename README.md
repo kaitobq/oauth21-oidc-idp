@@ -1,6 +1,7 @@
 # OAuth 2.1 / OIDC Identity Provider
 
 OAuth 2.1 と OpenID Connect に準拠した Identity Provider。
+まずは IDP core（Discovery/JWKS）から実装し、Authorization Code + PKCE へ段階的に進めます。
 
 ## Architecture
 
@@ -18,6 +19,17 @@ OAuth 2.1 と OpenID Connect に準拠した Identity Provider。
 
 Dependency direction is fixed as `handler -> application -> domain` and `infra -> domain`.
 `domain` must not import `infra`.
+
+### Current Scope
+
+- default enabled:
+  - OIDC Discovery: `/.well-known/openid-configuration`
+  - JWKS: `/oauth2/jwks`
+- not implemented yet (placeholder):
+  - `/oauth2/authorize`
+  - `/oauth2/token`
+- optional:
+  - `organization` API (`ENABLE_ORGANIZATION_API=true` のときのみ有効)
 
 ### API Contract Policy
 
@@ -50,17 +62,11 @@ scripts/        # Build and generation scripts
 ## Getting Started
 
 ```bash
-# Install dependencies
-make setup
-
-# Generate code from proto definitions
-make gen
-
 # Run backend
 make run-backend
 
-# Run frontend
-make run-frontend
+# Validate core endpoints
+BASE_URL=http://localhost:8080 make harness-smoke
 ```
 
 ## Development
