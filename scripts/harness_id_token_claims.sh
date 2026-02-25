@@ -8,6 +8,7 @@ REDIRECT_URI="${OIDC_DEV_REDIRECT_URI:-http://localhost:3000/callback}"
 SCOPE="${SCOPE:-openid offline_access}"
 STATE="${STATE:-id-token-claims-state}"
 NONCE="${NONCE:-id-token-claims-nonce-123}"
+ACR_VALUES="${ACR_VALUES:-urn:example:loa:1}"
 CODE_VERIFIER="${CODE_VERIFIER:-id-token-claims-verifier-1234567890abcdefghijklmnopqrstuvwxyz}"
 
 failures=0
@@ -110,13 +111,14 @@ info "BASE_URL=$BASE_URL"
 info "CLIENT_ID=$CLIENT_ID"
 info "REDIRECT_URI=$REDIRECT_URI"
 info "NONCE=$NONCE"
+info "ACR_VALUES=$ACR_VALUES"
 
 auth_headers="$(mktemp)"
 auth_body="$(mktemp)"
 token_body="$(mktemp)"
 refresh_body="$(mktemp)"
 
-authorize_url="$BASE_URL/oauth2/authorize?response_type=code&client_id=$(urlencode "$CLIENT_ID")&redirect_uri=$(urlencode "$REDIRECT_URI")&scope=$(urlencode "$SCOPE")&state=$(urlencode "$STATE")&nonce=$(urlencode "$NONCE")&code_challenge=$(urlencode "$code_challenge")&code_challenge_method=S256"
+authorize_url="$BASE_URL/oauth2/authorize?response_type=code&client_id=$(urlencode "$CLIENT_ID")&redirect_uri=$(urlencode "$REDIRECT_URI")&scope=$(urlencode "$SCOPE")&state=$(urlencode "$STATE")&nonce=$(urlencode "$NONCE")&acr_values=$(urlencode "$ACR_VALUES")&code_challenge=$(urlencode "$code_challenge")&code_challenge_method=S256"
 
 auth_status="$(curl -sS -m "$TIMEOUT_SECONDS" -o "$auth_body" -D "$auth_headers" -w "%{http_code}" "$authorize_url" || true)"
 if [[ "$auth_status" == "302" ]]; then
@@ -188,6 +190,16 @@ if jq -e '.auth_time | numbers' "$id_claims_file" >/dev/null 2>&1; then
 else
   fail "id_token missing numeric auth_time"
 fi
+if jq -e --arg acr "$ACR_VALUES" '.acr == $acr' "$id_claims_file" >/dev/null 2>&1; then
+  pass "id_token includes acr"
+else
+  fail "id_token acr mismatch"
+fi
+if jq -e --arg amr "pwd" '.amr | arrays and (index($amr) != null)' "$id_claims_file" >/dev/null 2>&1; then
+  pass "id_token includes amr"
+else
+  fail "id_token amr mismatch"
+fi
 expected_at_hash="$(access_token_hash "$access_token")"
 if jq -e --arg at_hash "$expected_at_hash" '.at_hash == $at_hash' "$id_claims_file" >/dev/null 2>&1; then
   pass "id_token includes valid at_hash"
@@ -239,6 +251,16 @@ if jq -e --arg auth_time "$auth_time" '.auth_time | tostring == $auth_time' "$re
   pass "refresh id_token preserves auth_time"
 else
   fail "refresh id_token auth_time mismatch"
+fi
+if jq -e --arg acr "$ACR_VALUES" '.acr == $acr' "$refresh_claims_file" >/dev/null 2>&1; then
+  pass "refresh id_token preserves acr"
+else
+  fail "refresh id_token acr mismatch"
+fi
+if jq -e --arg amr "pwd" '.amr | arrays and (index($amr) != null)' "$refresh_claims_file" >/dev/null 2>&1; then
+  pass "refresh id_token preserves amr"
+else
+  fail "refresh id_token amr mismatch"
 fi
 expected_refresh_at_hash="$(access_token_hash "$refresh_access_token")"
 if jq -e --arg at_hash "$expected_refresh_at_hash" '.at_hash == $at_hash' "$refresh_claims_file" >/dev/null 2>&1; then
