@@ -611,6 +611,140 @@ func TestRotateSigningKeyEndpointWithoutTokenConfig(t *testing.T) {
 	}
 }
 
+func TestRotatePrivateJWTClientKeyEndpointDisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	h := NewHandler(provider)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-private-jwt-client-key", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("private_jwt rotate endpoint must be disabled by default: got=%d want=%d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestRotatePrivateJWTClientKeyEndpoint(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	privateKey1 := mustGenerateTestPrivateKeyPEM(t)
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, privateKey1),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+	h := NewHandlerWithPrivateJWTClientKeyRotation(provider, "test-private-jwt-rotation-token")
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	methodReq := httptest.NewRequest(http.MethodGet, "/oauth2/admin/rotate-private-jwt-client-key", nil)
+	methodRec := httptest.NewRecorder()
+	mux.ServeHTTP(methodRec, methodReq)
+	if methodRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("method check failed: got=%d want=%d", methodRec.Code, http.StatusMethodNotAllowed)
+	}
+
+	missingAuthReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-private-jwt-client-key", strings.NewReader("{}"))
+	missingAuthRec := httptest.NewRecorder()
+	mux.ServeHTTP(missingAuthRec, missingAuthReq)
+	if missingAuthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing auth must be rejected: got=%d want=%d", missingAuthRec.Code, http.StatusUnauthorized)
+	}
+
+	invalidTokenReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-private-jwt-client-key", strings.NewReader("{}"))
+	invalidTokenReq.Header.Set("Authorization", "Bearer wrong-token")
+	invalidTokenRec := httptest.NewRecorder()
+	mux.ServeHTTP(invalidTokenRec, invalidTokenReq)
+	if invalidTokenRec.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid token must be rejected: got=%d want=%d", invalidTokenRec.Code, http.StatusUnauthorized)
+	}
+
+	invalidJSONReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-private-jwt-client-key", strings.NewReader("{"))
+	invalidJSONReq.Header.Set("Authorization", "Bearer test-private-jwt-rotation-token")
+	invalidJSONReq.Header.Set("Content-Type", "application/json")
+	invalidJSONRec := httptest.NewRecorder()
+	mux.ServeHTTP(invalidJSONRec, invalidJSONReq)
+	if invalidJSONRec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid json must be rejected: got=%d want=%d", invalidJSONRec.Code, http.StatusBadRequest)
+	}
+
+	privateKey2 := mustGenerateTestPrivateKeyPEM(t)
+	rotatePayload := map[string]string{
+		"client_id":      core.DefaultPrivateJWTClientID,
+		"public_key_pem": mustPublicKeyPEMFromPrivateKey(t, privateKey2),
+	}
+	body, err := json.Marshal(rotatePayload)
+	if err != nil {
+		t.Fatalf("marshal rotate payload error: %v", err)
+	}
+
+	rotateReq := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-private-jwt-client-key", strings.NewReader(string(body)))
+	rotateReq.Header.Set("Authorization", "Bearer test-private-jwt-rotation-token")
+	rotateReq.Header.Set("Content-Type", "application/json")
+	rotateRec := httptest.NewRecorder()
+	mux.ServeHTTP(rotateRec, rotateReq)
+	if rotateRec.Code != http.StatusOK {
+		t.Fatalf("rotate private_jwt client key request failed: got=%d want=%d", rotateRec.Code, http.StatusOK)
+	}
+
+	var rotateResp map[string]string
+	if err := json.Unmarshal(rotateRec.Body.Bytes(), &rotateResp); err != nil {
+		t.Fatalf("rotate response json error: %v", err)
+	}
+	if rotateResp["kid"] == "" {
+		t.Fatalf("rotate response must include kid")
+	}
+
+	assertPrivateJWTClientAuthentication(t, provider, privateKey2)
+	assertPrivateJWTClientAuthentication(t, provider, privateKey1)
+}
+
+func TestRotatePrivateJWTClientKeyEndpointWithoutTokenConfig(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	privateKey := mustGenerateTestPrivateKeyPEM(t)
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, privateKey),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+	h := NewHandlerWithPrivateJWTClientKeyRotation(provider, "   ")
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth2/admin/rotate-private-jwt-client-key", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer any-token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("misconfigured token must return 500: got=%d want=%d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
 func queryParam(t *testing.T, rawURL, name string) string {
 	t.Helper()
 
@@ -710,6 +844,26 @@ func signClientAssertion(t *testing.T, privateKeyPEM, clientID, audience string,
 		t.Fatalf("sign jwt error: %v", err)
 	}
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func assertPrivateJWTClientAuthentication(t *testing.T, provider *core.Provider, privateKeyPEM string) {
+	t.Helper()
+
+	assertion := signClientAssertion(
+		t,
+		privateKeyPEM,
+		core.DefaultPrivateJWTClientID,
+		testIssuer+"/oauth2/token",
+		time.Now().UTC().Add(5*time.Minute),
+	)
+	if err := provider.AuthenticateTokenClient(core.TokenClientAuthentication{
+		ClientID:            core.DefaultPrivateJWTClientID,
+		AuthMethod:          core.TokenEndpointAuthMethodPrivate,
+		ClientAssertionType: core.ClientAssertionTypeJWTBearer,
+		ClientAssertion:     assertion,
+	}); err != nil {
+		t.Fatalf("private_key_jwt client authentication must succeed: %v", err)
+	}
 }
 
 func mustGenerateTestPrivateKeyPEM(t *testing.T) string {

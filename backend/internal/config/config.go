@@ -21,6 +21,8 @@ type Config struct {
 	PrivateJWTRedirectURI       string
 	PrivateJWTPublicKeyPEM      string
 	PrivateJWTPublicKeyPath     string
+	EnablePrivateJWTKeyRotation bool
+	PrivateJWTKeyRotationToken  string
 	EnableSigningKeyRotationAPI bool
 	SigningKeyRotationToken     string
 
@@ -47,6 +49,8 @@ func Load() *Config {
 		PrivateJWTRedirectURI:       getEnv("OIDC_PRIVATE_JWT_REDIRECT_URI", "http://localhost:3000/callback"),
 		PrivateJWTPublicKeyPEM:      getEnv("OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM", ""),
 		PrivateJWTPublicKeyPath:     getEnv("OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH", "config/keys/local/private_jwt_client_public.pem"),
+		EnablePrivateJWTKeyRotation: getEnvBool("OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API", false),
+		PrivateJWTKeyRotationToken:  getEnv("OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN", "dev-private-jwt-key-rotation-token"),
 		EnableSigningKeyRotationAPI: getEnvBool("OIDC_ENABLE_SIGNING_KEY_ROTATION_API", false),
 		SigningKeyRotationToken:     getEnv("OIDC_SIGNING_KEY_ROTATION_TOKEN", "dev-signing-key-rotation-token"),
 

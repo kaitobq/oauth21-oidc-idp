@@ -13,6 +13,7 @@
 - 2026-02-25: Phase 2 進行中（token endpoint client auth: private_key_jwt 追加）
 - 2026-02-25: Phase 2 進行中（private_key_jwt 鍵管理を設定駆動へ移行）
 - 2026-02-25: Phase 2 進行中（IDP署名鍵ローテーションAPI + JWKS反映 + harness 追加）
+- 2026-02-25: Phase 2 進行中（private_key_jwt クライアント鍵ローテーションAPI + harness 追加）
 
 ## Implementation Plan
 
@@ -39,5 +40,5 @@
 
 ## Next Actions
 1. クライアント登録を静的1件から永続化モデルへ移行
-2. client 鍵ローテーション（private_key_jwt 登録鍵更新）を段階導入
+2. client 鍵ローテーションの管理者認可強化（token運用/権限分離）を導入
 3. 監査ログと異常検知を段階導入

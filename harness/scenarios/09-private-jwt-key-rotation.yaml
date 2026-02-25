@@ -1,0 +1,18 @@
+id: private-jwt-key-rotation
+priority: p1
+objective: private_key_jwt クライアント公開鍵をローテーションし、新旧鍵の受理範囲が想定通りであること
+preconditions:
+  - `OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API=true`
+  - `OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN` が設定済み
+  - private_key_jwt client が登録済み
+steps:
+  - 現行鍵で private_key_jwt 認証が成功することを確認
+  - `/oauth2/admin/rotate-private-jwt-client-key` へ新公開鍵を送信
+  - 新鍵で private_key_jwt 認証が成功することを確認
+  - 旧鍵が grace window 中に引き続き成功することを確認
+  - さらに1回ローテーションして、最古鍵が拒否されることを確認
+expect:
+  - Bearer token なしのローテーションAPI呼び出しは `401` / `unauthorized`
+  - ローテーション成功時は `200` と新 `kid` が返る
+  - 公開鍵ローテーション後、最新鍵と直前鍵で private_key_jwt 認証が成功する
+  - rotation window 超過後、最古鍵は `401` / `invalid_client` で拒否される

@@ -12,9 +12,11 @@ import (
 )
 
 type Handler struct {
-	provider                 *core.Provider
-	enableSigningKeyRotation bool
-	signingKeyRotationToken  string
+	provider                          *core.Provider
+	enableSigningKeyRotation          bool
+	signingKeyRotationToken           string
+	enablePrivateJWTClientKeyRotation bool
+	privateJWTClientKeyRotationToken  string
 }
 
 func NewHandler(provider *core.Provider) *Handler {
@@ -29,6 +31,24 @@ func NewHandlerWithSigningKeyRotation(provider *core.Provider, rotationToken str
 	}
 }
 
+func NewHandlerWithPrivateJWTClientKeyRotation(provider *core.Provider, rotationToken string) *Handler {
+	return &Handler{
+		provider:                          provider,
+		enablePrivateJWTClientKeyRotation: true,
+		privateJWTClientKeyRotationToken:  strings.TrimSpace(rotationToken),
+	}
+}
+
+func NewHandlerWithAdminAPIs(provider *core.Provider, signingKeyRotationToken, privateJWTClientKeyRotationToken string) *Handler {
+	return &Handler{
+		provider:                          provider,
+		enableSigningKeyRotation:          true,
+		signingKeyRotationToken:           strings.TrimSpace(signingKeyRotationToken),
+		enablePrivateJWTClientKeyRotation: true,
+		privateJWTClientKeyRotationToken:  strings.TrimSpace(privateJWTClientKeyRotationToken),
+	}
+}
+
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/.well-known/openid-configuration", h.discovery)
 	mux.HandleFunc("/oauth2/jwks", h.jwks)
@@ -36,6 +56,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/oauth2/token", h.token)
 	if h.enableSigningKeyRotation {
 		mux.HandleFunc("/oauth2/admin/rotate-signing-key", h.rotateSigningKey)
+	}
+	if h.enablePrivateJWTClientKeyRotation {
+		mux.HandleFunc("/oauth2/admin/rotate-private-jwt-client-key", h.rotatePrivateJWTClientKey)
 	}
 }
 
@@ -175,6 +198,73 @@ func (h *Handler) rotateSigningKey(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":             "server_error",
 			"error_description": "failed to rotate signing key",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"kid": kid})
+}
+
+func (h *Handler) rotatePrivateJWTClientKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+			"error":             "invalid_request",
+			"error_description": "method must be POST",
+		})
+		return
+	}
+
+	if strings.TrimSpace(h.privateJWTClientKeyRotationToken) == "" {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":             "server_error",
+			"error_description": "private_key_jwt key rotation token is not configured",
+		})
+		return
+	}
+
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	parts := strings.SplitN(authorization, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error":             "unauthorized",
+			"error_description": "authorization header must use bearer token",
+		})
+		return
+	}
+	token := strings.TrimSpace(parts[1])
+	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.privateJWTClientKeyRotationToken)) != 1 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error":             "unauthorized",
+			"error_description": "invalid private_key_jwt key rotation token",
+		})
+		return
+	}
+
+	var payload struct {
+		ClientID     string `json:"client_id"`
+		PublicKeyPEM string `json:"public_key_pem"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":             "invalid_request",
+			"error_description": "request body must be valid json",
+		})
+		return
+	}
+	payload.ClientID = strings.TrimSpace(payload.ClientID)
+	payload.PublicKeyPEM = strings.TrimSpace(payload.PublicKeyPEM)
+	if payload.ClientID == "" || payload.PublicKeyPEM == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":             "invalid_request",
+			"error_description": "client_id and public_key_pem are required",
+		})
+		return
+	}
+
+	kid, err := h.provider.RotatePrivateJWTClientKey(payload.ClientID, payload.PublicKeyPEM)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":             "invalid_request",
+			"error_description": "failed to rotate private_key_jwt client key",
 		})
 		return
 	}
