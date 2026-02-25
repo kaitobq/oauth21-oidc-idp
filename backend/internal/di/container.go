@@ -62,6 +62,9 @@ func NewContainer() (*Container, error) {
 		}
 	}
 	oidc := oidcHandler.NewHandler(provider)
+	if cfg.EnableSigningKeyRotationAPI {
+		oidc = oidcHandler.NewHandlerWithSigningKeyRotation(provider, cfg.SigningKeyRotationToken)
+	}
 
 	container := &Container{
 		Config:      cfg,

@@ -6,7 +6,7 @@ TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-5}"
 CLIENT_ID="${OIDC_PRIVATE_JWT_CLIENT_ID:-local-private-jwt-client}"
 REDIRECT_URI="${OIDC_PRIVATE_JWT_REDIRECT_URI:-http://localhost:3000/callback}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PRIVATE_KEY_PATH="${OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH:-$SCRIPT_DIR/../harness/keys/dev/private_jwt_client_private.pem}"
+PRIVATE_KEY_PATH="${OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH:-$SCRIPT_DIR/../harness/keys/local/private_jwt_client_private.pem}"
 SCOPE="${SCOPE:-openid profile}"
 STATE="${STATE:-harness-private-jwt-state}"
 CODE_VERIFIER="${CODE_VERIFIER:-harness-private-jwt-verifier-1234567890abcdefghijklmnopqrstuvwxyz}"
@@ -99,6 +99,7 @@ require_cmd openssl
 
 if [[ ! -f "$PRIVATE_KEY_PATH" ]]; then
   echo "[ERROR] private key file not found: $PRIVATE_KEY_PATH" >&2
+  echo "[ERROR] run: make gen-private-jwt-dev-keys" >&2
   exit 2
 fi
 private_key_file="$PRIVATE_KEY_PATH"

@@ -36,6 +36,7 @@ const (
 	authCodeTTL                     = 5 * time.Minute
 	accessTokenTTLSeconds           = int64(3600)
 	refreshTokenTTL                 = 30 * 24 * time.Hour
+	defaultMaxPublishedSigningKeys  = 2
 )
 
 // OAuthError maps internal validation failures to OAuth2-compatible responses.
@@ -62,14 +63,19 @@ func (e *OAuthError) Response() map[string]string {
 
 // Provider exposes OIDC discovery metadata, JWKS and minimal auth code + PKCE flow.
 type Provider struct {
-	issuer     string
-	privateKey *rsa.PrivateKey
-	jwks       jwks
+	issuer string
 
-	mu        sync.Mutex
-	clients   map[string]*client
-	authCodes map[string]*authorizationCode
-	tokens    map[string]*refreshTokenGrant
+	mu                      sync.Mutex
+	signingKeys             []signingKey
+	maxPublishedSigningKeys int
+	clients                 map[string]*client
+	authCodes               map[string]*authorizationCode
+	tokens                  map[string]*refreshTokenGrant
+}
+
+type signingKey struct {
+	PrivateKey *rsa.PrivateKey
+	PublicJWK  jwk
 }
 
 type client struct {
@@ -188,28 +194,15 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 		return nil, fmt.Errorf("invalid dev client redirect uri: %w", err)
 	}
 
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	initialSigningKey, err := generateSigningKey()
 	if err != nil {
-		return nil, fmt.Errorf("generate rsa key: %w", err)
+		return nil, fmt.Errorf("generate initial signing key: %w", err)
 	}
 
-	pub := key.PublicKey
-	n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
-	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
-	hash := sha256.Sum256(pub.N.Bytes())
-	kid := hex.EncodeToString(hash[:8])
-
 	provider := &Provider{
-		issuer:     issuer,
-		privateKey: key,
-		jwks: jwks{Keys: []jwk{{
-			Kty: "RSA",
-			Use: "sig",
-			Kid: kid,
-			Alg: "RS256",
-			N:   n,
-			E:   e,
-		}}},
+		issuer:                  issuer,
+		signingKeys:             []signingKey{initialSigningKey},
+		maxPublishedSigningKeys: defaultMaxPublishedSigningKeys,
 		clients: map[string]*client{
 			devClientID: {
 				ID:                      devClientID,
@@ -270,7 +263,14 @@ func (p *Provider) Discovery() discoveryDocument {
 }
 
 func (p *Provider) JWKS() jwks {
-	return p.jwks
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	keys := make([]jwk, len(p.signingKeys))
+	for i, key := range p.signingKeys {
+		keys[i] = key.PublicJWK
+	}
+	return jwks{Keys: keys}
 }
 
 func (p *Provider) supportedTokenEndpointAuthMethods() []string {
@@ -299,6 +299,26 @@ func (p *Provider) supportedTokenEndpointAuthMethods() []string {
 		}
 	}
 	return ordered
+}
+
+func (p *Provider) RotateSigningKey() (string, error) {
+	key, err := generateSigningKey()
+	if err != nil {
+		return "", fmt.Errorf("generate rotated signing key: %w", err)
+	}
+
+	p.mu.Lock()
+	p.signingKeys = append([]signingKey{key}, p.signingKeys...)
+	maxKeys := p.maxPublishedSigningKeys
+	if maxKeys < 1 {
+		maxKeys = 1
+	}
+	if len(p.signingKeys) > maxKeys {
+		p.signingKeys = p.signingKeys[:maxKeys]
+	}
+	p.mu.Unlock()
+
+	return key.PublicJWK.Kid, nil
 }
 
 func (p *Provider) RegisterConfidentialClient(clientID, clientSecret, redirectURI string) error {
@@ -727,11 +747,19 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 }
 
 func (p *Provider) signIDToken(subject, audience, nonce, acr string, amr []string, authenticatedAt time.Time, sessionID, accessToken string) (string, error) {
+	p.mu.Lock()
+	if len(p.signingKeys) == 0 {
+		p.mu.Unlock()
+		return "", fmt.Errorf("signing key is not configured")
+	}
+	activeSigningKey := p.signingKeys[0]
+	p.mu.Unlock()
+
 	now := time.Now().UTC()
 	header := map[string]string{
 		"alg": "RS256",
 		"typ": "JWT",
-		"kid": p.jwks.Keys[0].Kid,
+		"kid": activeSigningKey.PublicJWK.Kid,
 	}
 	claims := map[string]any{
 		"iss": p.issuer,
@@ -774,12 +802,37 @@ func (p *Provider) signIDToken(subject, audience, nonce, acr string, amr []strin
 	signingInput := headerEnc + "." + claimsEnc
 
 	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, p.privateKey, crypto.SHA256, digest[:])
+	signature, err := rsa.SignPKCS1v15(rand.Reader, activeSigningKey.PrivateKey, crypto.SHA256, digest[:])
 	if err != nil {
 		return "", fmt.Errorf("sign jwt: %w", err)
 	}
 
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func generateSigningKey() (signingKey, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return signingKey{}, fmt.Errorf("generate rsa key: %w", err)
+	}
+
+	publicKey := privateKey.PublicKey
+	n := base64.RawURLEncoding.EncodeToString(publicKey.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(publicKey.E)).Bytes())
+	hash := sha256.Sum256(publicKey.N.Bytes())
+	kid := hex.EncodeToString(hash[:8])
+
+	return signingKey{
+		PrivateKey: privateKey,
+		PublicJWK: jwk{
+			Kty: "RSA",
+			Use: "sig",
+			Kid: kid,
+			Alg: "RS256",
+			N:   n,
+			E:   e,
+		},
+	}, nil
 }
 
 func parseRSAPublicKeyPEM(publicKeyPEM string) (*rsa.PublicKey, error) {
