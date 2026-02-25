@@ -27,6 +27,7 @@ Dependency direction is fixed as `handler -> application -> domain` and `infra -
   - JWKS: `/oauth2/jwks`
   - Authorization Endpoint (Auth Code + PKCE): `/oauth2/authorize`
   - Token Endpoint (`authorization_code` / `refresh_token`): `/oauth2/token`
+  - UserInfo Endpoint: `/oauth2/userinfo`
 - optional:
   - `organization` API (`ENABLE_ORGANIZATION_API=true` のときのみ有効)
   - 署名鍵ローテーション API (`OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true` のときのみ有効)
@@ -80,6 +81,9 @@ BASE_URL=http://localhost:8080 make harness-refresh-rotation
 
 # Validate id_token claims (nonce/auth_time/at_hash/azp/sid/acr/amr)
 BASE_URL=http://localhost:8080 make harness-id-token-claims
+
+# Validate userinfo endpoint (success / invalid_token / insufficient_scope)
+BASE_URL=http://localhost:8080 make harness-userinfo
 
 # Validate confidential client auth (client_secret_basic)
 BASE_URL=http://localhost:8080 make harness-client-secret-basic

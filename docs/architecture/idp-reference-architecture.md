@@ -4,7 +4,7 @@
 - Authorization Server
   - 認可エンドポイントとトークンエンドポイントを提供
 - Identity Layer (OIDC)
-  - ID Token 発行、UserInfo（将来フェーズ）
+  - ID Token 発行、UserInfo
 - Key Management
   - 署名鍵管理、`jwks_uri` 公開、ローテーション
 - Client Registry
