@@ -14,6 +14,7 @@
 - 2026-02-25: Phase 2 進行中（private_key_jwt 鍵管理を設定駆動へ移行）
 - 2026-02-25: Phase 2 進行中（IDP署名鍵ローテーションAPI + JWKS反映 + harness 追加）
 - 2026-02-25: Phase 2 進行中（private_key_jwt クライアント鍵ローテーションAPI + harness 追加）
+- 2026-02-25: Phase 2 進行中（token endpoint error contract harness 追加）
 
 ## Implementation Plan
 
