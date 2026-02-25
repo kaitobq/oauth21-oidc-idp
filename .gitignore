@@ -1,4 +1,36 @@
+# OS
 .DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Go
+backend/bin/
+backend/vendor/
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# Generated code (tracked separately via buf generate)
+backend/internal/gen/
+frontend/src/gen/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+.wrangler/
+.vinext/
+.next/
+
+# Logs
 *.log
-harness/runs/
