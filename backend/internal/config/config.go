@@ -3,11 +3,14 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
-	Host string
-	Port string
+	Host                  string
+	Port                  string
+	Issuer                string
+	EnableOrganizationAPI bool
 
 	DBHost     string
 	DBPort     string
@@ -18,8 +21,10 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		Host: getEnv("HOST", "0.0.0.0"),
-		Port: getEnv("PORT", "8080"),
+		Host:                  getEnv("HOST", "0.0.0.0"),
+		Port:                  getEnv("PORT", "8080"),
+		Issuer:                getEnv("ISSUER", "http://localhost:8080"),
+		EnableOrganizationAPI: getEnvBool("ENABLE_ORGANIZATION_API", false),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),
@@ -44,4 +49,19 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if v == "" {
+		return fallback
+	}
+	switch v {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
 }

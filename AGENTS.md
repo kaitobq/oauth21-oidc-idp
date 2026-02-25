@@ -4,6 +4,7 @@
 - OAuth 2.1 / OIDC 準拠 IDP を構築するための実装リポジトリです。
 - 目的は「セキュアな認可・認証フローを段階的に実装し、harness で継続検証する」ことです。
 - まず Authorization Code + PKCE を最優先で実装します。
+- `organization` API は将来のマルチテナント検証用であり、IDP core の必須機能ではありません。
 
 ## ドキュメント運用方針
 - `AGENTS.md` は最小限の目次として維持し、詳細は `docs/` に書きます。

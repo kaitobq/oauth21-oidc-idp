@@ -12,6 +12,8 @@
    make bootstrap
    ```
 3. IDP をローカル起動
+   - 既定では `organization` API は無効（DB不要）
+   - 必要な場合のみ `ENABLE_ORGANIZATION_API=true` を設定
 4. harness 実行
    ```bash
    BASE_URL=http://localhost:8080 make harness-smoke

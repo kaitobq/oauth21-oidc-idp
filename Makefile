@@ -1,4 +1,11 @@
-.PHONY: setup gen lint-proto check test run-backend run-frontend clean
+.PHONY: bootstrap harness-smoke setup gen lint-proto check test run-backend run-frontend clean
+
+bootstrap:
+	chmod +x scripts/harness_smoke.sh
+	@echo "bootstrap complete"
+
+harness-smoke:
+	BASE_URL=$${BASE_URL:-http://localhost:8080} scripts/harness_smoke.sh
 
 # ── Setup ──────────────────────────────────────────────
 setup: setup-backend setup-frontend setup-proto

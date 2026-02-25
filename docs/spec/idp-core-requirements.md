@@ -10,6 +10,10 @@ OAuth 2.1 / OIDC の基本要件を満たす IDP を実装し、相互運用性�
 
 ## Functional Requirements
 
+### 0. Scope Boundary
+1. `organization` などのマルチテナント機能は IDP core の必須要件に含めない。
+2. まず OAuth/OIDC の最小相互運用性（discovery, jwks, auth code + pkce）を優先する。
+
 ### 1. Authorization Flow
 1. `authorization_code` grant を実装する。
 2. Public Client には PKCE (`S256`) を必須にする。

@@ -2,6 +2,7 @@
 
 ## Current Phase
 - 2026-02-25: Phase 0（repo + docs + harness scaffold）
+- 2026-02-25: Phase 1 着手（OIDC discovery + JWKS の実装）
 
 ## Implementation Plan
 
@@ -14,6 +15,7 @@
 - OIDC discovery endpoint
 - JWKS endpoint
 - Authorization Code + PKCE
+  - `authorize` / `token` は placeholder から段階的に実装する
 
 ### Phase 2: Hardening
 - Refresh Token Rotation
@@ -26,6 +28,6 @@
 - Gate C: 主要フロー変更時に harness シナリオが更新される
 
 ## Next Actions
-1. 実装言語・フレームワークを決定（Go / Node.js など）
-2. `authorization_endpoint` と `token_endpoint` の最小実装
-3. `harness/scenarios/02-auth-code-pkce.yaml` に沿った自動試験追加
+1. `authorization_endpoint` の最小実装（PKCE 必須チェック）
+2. `token_endpoint` の最小実装（code_verifier 検証）
+3. `Client` / `User` / `Authorization Code` の最小モデル追加
