@@ -70,6 +70,7 @@ type Provider struct {
 	signingKeys             []signingKey
 	maxPublishedSigningKeys int
 	clients                 map[string]*client
+	usedClientAssertionJTIs map[string]map[string]int64
 	authCodes               map[string]*authorizationCode
 	tokens                  map[string]*refreshTokenGrant
 }
@@ -112,6 +113,7 @@ type tokenAssertionClaims struct {
 	Exp int64  `json:"exp"`
 	Iat int64  `json:"iat,omitempty"`
 	Nbf int64  `json:"nbf,omitempty"`
+	Jti string `json:"jti,omitempty"`
 }
 
 type authorizationCode struct {
@@ -219,8 +221,9 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 				},
 			},
 		},
-		authCodes: map[string]*authorizationCode{},
-		tokens:    map[string]*refreshTokenGrant{},
+		usedClientAssertionJTIs: map[string]map[string]int64{},
+		authCodes:               map[string]*authorizationCode{},
+		tokens:                  map[string]*refreshTokenGrant{},
 	}
 
 	if err := provider.RegisterConfidentialClient(
@@ -526,6 +529,12 @@ func (p *Provider) AuthenticateTokenClient(auth TokenClientAuthentication) error
 		}
 		if claims.Iat != 0 && claims.Iat > now+60 {
 			return &OAuthError{Code: "invalid_client", Description: "client_assertion iat is in the future", Status: 401}
+		}
+		if strings.TrimSpace(claims.Jti) == "" {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion jti is required", Status: 401}
+		}
+		if p.reserveClientAssertionJTI(clientID, claims.Jti, claims.Exp, now) {
+			return &OAuthError{Code: "invalid_client", Description: "client_assertion has been replayed", Status: 401}
 		}
 		return nil
 	default:
@@ -1016,4 +1025,27 @@ func resolveACR(acrValues string) (string, error) {
 		}
 	}
 	return "", &OAuthError{Code: "invalid_request", Description: "acr_values includes unsupported value", Status: 400}
+}
+
+func (p *Provider) reserveClientAssertionJTI(clientID, jti string, expiresAtUnix, nowUnix int64) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	perClient, ok := p.usedClientAssertionJTIs[clientID]
+	if !ok {
+		perClient = map[string]int64{}
+		p.usedClientAssertionJTIs[clientID] = perClient
+	}
+
+	for usedJTI, exp := range perClient {
+		if exp <= nowUnix {
+			delete(perClient, usedJTI)
+		}
+	}
+
+	if _, exists := perClient[jti]; exists {
+		return true
+	}
+	perClient[jti] = expiresAtUnix
+	return false
 }

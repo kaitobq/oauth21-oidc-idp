@@ -87,6 +87,9 @@ BASE_URL=http://localhost:8080 make harness-client-secret-basic
 # Validate private_key_jwt client auth
 BASE_URL=http://localhost:8080 make harness-private-key-jwt
 
+# Validate private_key_jwt assertion replay protection (jti reuse)
+BASE_URL=http://localhost:8080 make harness-private-jwt-replay-protection
+
 # Validate token endpoint error contract
 BASE_URL=http://localhost:8080 make harness-token-error-contract
 

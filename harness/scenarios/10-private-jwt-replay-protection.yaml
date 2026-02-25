@@ -1,0 +1,13 @@
+id: private-jwt-replay-protection
+priority: p1
+objective: private_key_jwt の client_assertion リプレイ（同一 jti 再利用）が拒否されること
+preconditions:
+  - private_key_jwt client が登録済み
+  - token endpoint が `private_key_jwt` 認証を受け付ける
+steps:
+  - 有効な `client_assertion` を生成し token endpoint へ送信
+  - 同一 `client_assertion`（同一 jti）を別の有効リクエストで再送する
+expect:
+  - 初回は token 交換が成功する
+  - 再送は `401` / `invalid_client` で拒否される
+  - エラー形式は `error` / `error_description` を含む

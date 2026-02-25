@@ -10,6 +10,7 @@ IDP 実装に対して継続的に仕様適合を確認するための検証資�
 - `../scripts/harness_id_token_claims.sh`: id_token claim（nonce/auth_time/at_hash/azp/sid/acr/amr）の検証
 - `../scripts/harness_client_secret_basic.sh`: confidential client の `client_secret_basic` 認証検証
 - `../scripts/harness_private_key_jwt.sh`: confidential client の `private_key_jwt` 認証検証
+- `../scripts/harness_private_jwt_replay_protection.sh`: private_key_jwt の assertion replay (jti) 防止検証
 - `../scripts/harness_token_error_contract.sh`: token endpoint のエラーレスポンス契約検証
 - `../scripts/harness_private_jwt_key_rotation.sh`: private_key_jwt クライアント鍵ローテーション検証
 
@@ -21,6 +22,7 @@ BASE_URL=http://localhost:8080 ../scripts/harness_refresh_rotation.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_id_token_claims.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_client_secret_basic.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_private_key_jwt.sh
+BASE_URL=http://localhost:8080 ../scripts/harness_private_jwt_replay_protection.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_token_error_contract.sh
 BASE_URL=http://localhost:8080 OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN=dev-private-jwt-key-rotation-token ../scripts/harness_private_jwt_key_rotation.sh
 ```
