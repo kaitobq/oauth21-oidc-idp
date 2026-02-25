@@ -10,7 +10,10 @@ import (
 )
 
 func main() {
-	container := di.NewContainer()
+	container, err := di.NewContainer()
+	if err != nil {
+		log.Fatalf("failed to initialize container: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	container.RegisterRoutes(mux)
@@ -18,7 +21,7 @@ func main() {
 	addr := container.Config.Addr()
 	log.Printf("server listening on %s", addr)
 
-	err := http.ListenAndServe(addr, h2c.NewHandler(mux, &http2.Server{}))
+	err = http.ListenAndServe(addr, h2c.NewHandler(mux, &http2.Server{}))
 	if err != nil {
 		log.Fatalf("failed to start server: %v", err)
 	}

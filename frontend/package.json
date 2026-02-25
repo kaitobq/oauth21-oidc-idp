@@ -18,6 +18,8 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.13.1",
+    "@vitejs/plugin-rsc": "^0.5.20",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "oxlint": "^0.16.0",

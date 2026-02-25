@@ -13,8 +13,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@v1
       - run: cd proto && buf lint
-      - run: cd proto && buf breaking --against 'https://github.com/${{ github.repository }}.git#branch=main,subdir=proto'
+      - name: Check breaking changes against main (if proto baseline exists)
         if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin main:main
+          if git ls-tree -r --name-only main proto | grep -q '\.proto$'; then
+            cd proto
+            buf breaking --against '../.git#branch=main,subdir=proto'
+          else
+            echo "Skip buf breaking: main has no proto baseline yet."
+          fi
 
   check-generated:
     runs-on: ubuntu-latest

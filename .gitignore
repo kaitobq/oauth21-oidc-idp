@@ -17,10 +17,6 @@ backend/vendor/
 node_modules/
 frontend/node_modules/
 
-# Generated code (tracked separately via buf generate)
-backend/internal/gen/
-frontend/src/gen/
-
 # Environment
 .env
 .env.local

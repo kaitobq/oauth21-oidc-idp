@@ -88,7 +88,7 @@ func (r *MySQLRepository) List(ctx context.Context, pageSize int, pageToken stri
 
 	var nextToken string
 	if len(entities) > pageSize {
-		nextToken = entities[pageSize].ID.String()
+		nextToken = entities[pageSize-1].ID.String()
 		entities = entities[:pageSize]
 	}
 

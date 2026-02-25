@@ -1,12 +1,14 @@
 package di
 
 import (
+	"fmt"
 	"net/http"
 
 	app "github.com/kaitobq/oauth21-oidc-idp/backend/internal/application/organization"
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/config"
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/gen/organization/v1/organizationv1connect"
 	handler "github.com/kaitobq/oauth21-oidc-idp/backend/internal/handler/organization"
+	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/mysql"
 	infra "github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/organization"
 )
 
@@ -17,12 +19,14 @@ type Container struct {
 }
 
 // NewContainer builds the dependency graph.
-func NewContainer() *Container {
+func NewContainer() (*Container, error) {
 	cfg := config.Load()
 
-	// TODO: Initialize actual DB connection
-	// db, err := mysql.NewDB(cfg.DSN())
-	repo := infra.NewMySQLRepository(nil) // placeholder until DB is wired
+	db, err := mysql.NewDB(cfg.DSN())
+	if err != nil {
+		return nil, fmt.Errorf("initialize mysql: %w", err)
+	}
+	repo := infra.NewMySQLRepository(db)
 
 	facade := app.NewFacade(repo)
 	orgHandler := handler.NewHandler(facade)
@@ -30,7 +34,7 @@ func NewContainer() *Container {
 	return &Container{
 		Config:              cfg,
 		organizationHandler: orgHandler,
-	}
+	}, nil
 }
 
 // RegisterRoutes registers all Connect RPC handlers on the given mux.
