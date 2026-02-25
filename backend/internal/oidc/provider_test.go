@@ -126,6 +126,9 @@ func TestAuthorizeAndExchangeAuthorizationCodeSuccess(t *testing.T) {
 	if _, ok := claims["auth_time"].(float64); !ok {
 		t.Fatalf("id_token must include numeric auth_time")
 	}
+	if claims["at_hash"] != accessTokenHash(tokenResp.AccessToken) {
+		t.Fatalf("id_token at_hash mismatch: %v", claims["at_hash"])
+	}
 }
 
 func TestExchangeAuthorizationCodeRejectReuse(t *testing.T) {
@@ -255,6 +258,9 @@ func TestRefreshTokenRotation(t *testing.T) {
 	if !ok {
 		t.Fatalf("first id_token must include numeric auth_time")
 	}
+	if firstClaims["at_hash"] != accessTokenHash(firstTokenResp.AccessToken) {
+		t.Fatalf("first id_token at_hash mismatch: %v", firstClaims["at_hash"])
+	}
 
 	secondTokenResp, err := provider.ExchangeRefreshToken(
 		"refresh_token",
@@ -280,6 +286,9 @@ func TestRefreshTokenRotation(t *testing.T) {
 	}
 	if secondClaims["auth_time"] != authTime {
 		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", secondClaims["auth_time"], authTime)
+	}
+	if secondClaims["at_hash"] != accessTokenHash(secondTokenResp.AccessToken) {
+		t.Fatalf("refresh id_token at_hash mismatch: %v", secondClaims["at_hash"])
 	}
 
 	_, err = provider.ExchangeRefreshToken(

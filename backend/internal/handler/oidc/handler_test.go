@@ -124,7 +124,8 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	if err := json.Unmarshal(tokenRec.Body.Bytes(), &tokenResp); err != nil {
 		t.Fatalf("invalid token json: %v", err)
 	}
-	if tokenResp["access_token"] == "" {
+	accessToken, ok := tokenResp["access_token"].(string)
+	if !ok || accessToken == "" {
 		t.Fatalf("access_token must not be empty")
 	}
 	if tokenResp["id_token"] == "" {
@@ -141,6 +142,9 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	authTime, ok := idTokenClaims["auth_time"].(float64)
 	if !ok {
 		t.Fatalf("id_token must include numeric auth_time")
+	}
+	if idTokenClaims["at_hash"] != accessTokenHash(accessToken) {
+		t.Fatalf("id_token at_hash mismatch: %v", idTokenClaims["at_hash"])
 	}
 	refreshToken, ok := tokenResp["refresh_token"].(string)
 	if !ok || refreshToken == "" {
@@ -180,6 +184,10 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	if err := json.Unmarshal(refreshRec.Body.Bytes(), &refreshResp); err != nil {
 		t.Fatalf("invalid refresh token json: %v", err)
 	}
+	refreshAccessToken, ok := refreshResp["access_token"].(string)
+	if !ok || refreshAccessToken == "" {
+		t.Fatalf("refresh exchange must return access_token")
+	}
 	nextRefreshToken, ok := refreshResp["refresh_token"].(string)
 	if !ok || nextRefreshToken == "" {
 		t.Fatalf("refresh exchange must return rotated refresh_token")
@@ -197,6 +205,9 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	}
 	if refreshIDTokenClaims["auth_time"] != authTime {
 		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", refreshIDTokenClaims["auth_time"], authTime)
+	}
+	if refreshIDTokenClaims["at_hash"] != accessTokenHash(refreshAccessToken) {
+		t.Fatalf("refresh id_token at_hash mismatch: %v", refreshIDTokenClaims["at_hash"])
 	}
 
 	reuseRefreshReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(refreshForm.Encode()))
@@ -248,6 +259,11 @@ func parseJWTClaims(t *testing.T, rawToken string) map[string]any {
 func pkceS256(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+func accessTokenHash(accessToken string) string {
+	sum := sha256.Sum256([]byte(accessToken))
+	return base64.RawURLEncoding.EncodeToString(sum[:len(sum)/2])
 }
 
 func containsValue(values []any, target string) bool {

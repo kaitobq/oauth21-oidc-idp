@@ -1,14 +1,14 @@
 id: id-token-claims
 priority: p1
-objective: nonce 指定時に id_token が nonce/auth_time を含み、refresh 後は nonce を引き継がないこと
+objective: nonce 指定時に id_token が nonce/auth_time/at_hash を含み、refresh 後は nonce を引き継がないこと
 preconditions:
   - authorization_code + pkce が有効
   - openid scope が有効
 steps:
   - authorize で nonce を指定し code を取得
-  - authorization_code 交換で id_token の nonce/auth_time を確認
-  - refresh_token 交換で id_token の nonce 欠如と auth_time 維持を確認
+  - authorization_code 交換で id_token の nonce/auth_time/at_hash を確認
+  - refresh_token 交換で id_token の nonce 欠如、auth_time 維持、at_hash 整合を確認
 expect:
-  - 初回 id_token に nonce と auth_time がある
+  - 初回 id_token に nonce/auth_time/at_hash がある
   - refresh 後 id_token に nonce はない
-  - refresh 後 id_token に auth_time はある
+  - refresh 後 id_token に auth_time/at_hash はある
