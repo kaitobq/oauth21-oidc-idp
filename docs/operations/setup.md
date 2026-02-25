@@ -17,17 +17,22 @@
 4. 必要に応じて開発用クライアントを設定
    - `OIDC_DEV_CLIENT_ID`（default: `local-dev-client`）
    - `OIDC_DEV_REDIRECT_URI`（default: `http://localhost:3000/callback`）
+   - `OIDC_CONFIDENTIAL_CLIENT_ID`（default: `local-confidential-client`）
+   - `OIDC_CONFIDENTIAL_CLIENT_SECRET`（default: `local-confidential-secret`）
+   - `OIDC_CONFIDENTIAL_REDIRECT_URI`（default: `http://localhost:3000/callback`）
 5. harness 実行
    ```bash
    BASE_URL=http://localhost:8080 make harness-smoke
    BASE_URL=http://localhost:8080 make harness-auth-code-pkce
    BASE_URL=http://localhost:8080 make harness-refresh-rotation
    BASE_URL=http://localhost:8080 make harness-id-token-claims
+   BASE_URL=http://localhost:8080 make harness-client-secret-basic
    ```
 
 ## Verification Checklist
 - discovery endpoint が 200 を返す
 - discovery に `issuer`, `jwks_uri`, `authorization_endpoint`, `token_endpoint` が含まれる
+- discovery の `token_endpoint_auth_methods_supported` に `none` / `client_secret_basic` が含まれる
 - JWKS endpoint が `keys` 配列を返す
 - `grant_types_supported` に `password` が含まれない
 - `authorize` が 302 で `code` を返す
@@ -41,6 +46,8 @@
 - `id_token` が `azp` を含み、`client_id` と一致する
 - `id_token` が `sid` を含み、refresh 後も同一値を維持する
 - `id_token` が `acr` / `amr` を含む
+- confidential client が `client_secret_basic` で token 交換できる
+- 不正な Basic 認証が `401` / `invalid_client` で拒否される
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール

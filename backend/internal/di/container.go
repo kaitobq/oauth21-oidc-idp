@@ -31,6 +31,17 @@ func NewContainer() (*Container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize oidc provider: %w", err)
 	}
+	if cfg.ConfidentialClientID != coreOIDC.DefaultConfidentialClientID ||
+		cfg.ConfidentialSecret != coreOIDC.DefaultConfidentialClientSecret ||
+		cfg.ConfidentialRedirect != coreOIDC.DefaultConfidentialRedirect {
+		if err := provider.RegisterConfidentialClient(
+			cfg.ConfidentialClientID,
+			cfg.ConfidentialSecret,
+			cfg.ConfidentialRedirect,
+		); err != nil {
+			return nil, fmt.Errorf("register confidential oidc client: %w", err)
+		}
+	}
 	oidc := oidcHandler.NewHandler(provider)
 
 	container := &Container{

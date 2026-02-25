@@ -1,9 +1,11 @@
 package oidc
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	core "github.com/kaitobq/oauth21-oidc-idp/backend/internal/oidc"
 )
@@ -78,31 +80,41 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 	}
 
 	grantType := r.PostForm.Get("grant_type")
+	clientID, clientSecret, authMethod, err := resolveTokenClientAuthentication(r)
+	if err != nil {
+		h.writeOAuthError(w, err)
+		return
+	}
+	if err := h.provider.AuthenticateTokenClient(clientID, clientSecret, authMethod); err != nil {
+		h.writeOAuthError(w, err)
+		return
+	}
+
 	var (
-		resp *core.TokenResponse
-		err  error
+		resp        *core.TokenResponse
+		exchangeErr error
 	)
 	switch grantType {
 	case "authorization_code":
-		resp, err = h.provider.ExchangeAuthorizationCode(
+		resp, exchangeErr = h.provider.ExchangeAuthorizationCode(
 			grantType,
 			r.PostForm.Get("code"),
 			r.PostForm.Get("redirect_uri"),
-			r.PostForm.Get("client_id"),
+			clientID,
 			r.PostForm.Get("code_verifier"),
 		)
 	case "refresh_token":
-		resp, err = h.provider.ExchangeRefreshToken(
+		resp, exchangeErr = h.provider.ExchangeRefreshToken(
 			grantType,
 			r.PostForm.Get("refresh_token"),
-			r.PostForm.Get("client_id"),
+			clientID,
 			r.PostForm.Get("scope"),
 		)
 	default:
-		err = &core.OAuthError{Code: "unsupported_grant_type", Description: "unsupported grant_type", Status: http.StatusBadRequest}
+		exchangeErr = &core.OAuthError{Code: "unsupported_grant_type", Description: "unsupported grant_type", Status: http.StatusBadRequest}
 	}
-	if err != nil {
-		h.writeOAuthError(w, err)
+	if exchangeErr != nil {
+		h.writeOAuthError(w, exchangeErr)
 		return
 	}
 
@@ -126,4 +138,70 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func resolveTokenClientAuthentication(r *http.Request) (clientID, clientSecret, authMethod string, err error) {
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	formClientID := strings.TrimSpace(r.PostForm.Get("client_id"))
+	formClientSecret := r.PostForm.Get("client_secret")
+
+	if authorization == "" {
+		if formClientSecret != "" {
+			return "", "", "", &core.OAuthError{
+				Code:        "invalid_client",
+				Description: "client_secret_post is not supported",
+				Status:      http.StatusUnauthorized,
+			}
+		}
+		return formClientID, "", "none", nil
+	}
+
+	authorizationParts := strings.SplitN(authorization, " ", 2)
+	if len(authorizationParts) != 2 || !strings.EqualFold(authorizationParts[0], "Basic") {
+		return "", "", "", &core.OAuthError{
+			Code:        "invalid_client",
+			Description: "authorization header must use basic scheme",
+			Status:      http.StatusUnauthorized,
+		}
+	}
+
+	encodedCredentials := strings.TrimSpace(authorizationParts[1])
+	if encodedCredentials == "" {
+		return "", "", "", &core.OAuthError{
+			Code:        "invalid_client",
+			Description: "missing basic credentials",
+			Status:      http.StatusUnauthorized,
+		}
+	}
+
+	rawCredentials, decodeErr := base64.StdEncoding.DecodeString(encodedCredentials)
+	if decodeErr != nil {
+		return "", "", "", &core.OAuthError{
+			Code:        "invalid_client",
+			Description: "invalid basic credentials encoding",
+			Status:      http.StatusUnauthorized,
+		}
+	}
+
+	credentials := string(rawCredentials)
+	separator := strings.IndexByte(credentials, ':')
+	if separator <= 0 {
+		return "", "", "", &core.OAuthError{
+			Code:        "invalid_client",
+			Description: "invalid basic credentials format",
+			Status:      http.StatusUnauthorized,
+		}
+	}
+
+	clientID = credentials[:separator]
+	clientSecret = credentials[separator+1:]
+	if formClientID != "" && formClientID != clientID {
+		return "", "", "", &core.OAuthError{
+			Code:        "invalid_client",
+			Description: "client_id in body does not match authorization header",
+			Status:      http.StatusUnauthorized,
+		}
+	}
+
+	return clientID, clientSecret, "client_secret_basic", nil
 }

@@ -57,6 +57,9 @@ func TestProviderDiscoveryAndJWKS(t *testing.T) {
 	if !contains(d.TokenEndpointAuthMethodsSupported, "none") {
 		t.Fatalf("token_endpoint_auth_methods_supported must include none")
 	}
+	if !contains(d.TokenEndpointAuthMethodsSupported, "client_secret_basic") {
+		t.Fatalf("token_endpoint_auth_methods_supported must include client_secret_basic")
+	}
 
 	ks := provider.JWKS()
 	if len(ks.Keys) == 0 {
@@ -193,6 +196,29 @@ func TestExchangeAuthorizationCodeRejectReuse(t *testing.T) {
 		t.Fatalf("second exchange must fail")
 	}
 	assertOAuthError(t, err, "invalid_grant")
+}
+
+func TestAuthenticateTokenClient(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	if err := provider.AuthenticateTokenClient(testClientID, "", "none"); err != nil {
+		t.Fatalf("public client authentication must succeed: %v", err)
+	}
+
+	if err := provider.AuthenticateTokenClient(DefaultConfidentialClientID, DefaultConfidentialClientSecret, "client_secret_basic"); err != nil {
+		t.Fatalf("confidential client authentication must succeed: %v", err)
+	}
+
+	invalidSecretErr := provider.AuthenticateTokenClient(DefaultConfidentialClientID, "wrong-secret", "client_secret_basic")
+	assertOAuthError(t, invalidSecretErr, "invalid_client")
+
+	wrongMethodErr := provider.AuthenticateTokenClient(DefaultConfidentialClientID, "", "none")
+	assertOAuthError(t, wrongMethodErr, "invalid_client")
 }
 
 func TestExchangeAuthorizationCodeRejectVerifierMismatch(t *testing.T) {

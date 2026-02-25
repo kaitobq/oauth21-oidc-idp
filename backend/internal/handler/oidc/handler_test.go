@@ -67,6 +67,16 @@ func TestDiscoveryEndpoint(t *testing.T) {
 	if !containsValue(acrValues, coreDefaultACRValue) {
 		t.Fatalf("acr_values_supported must include %s", coreDefaultACRValue)
 	}
+	tokenAuthMethods, ok := doc["token_endpoint_auth_methods_supported"].([]any)
+	if !ok {
+		t.Fatalf("token_endpoint_auth_methods_supported must be array")
+	}
+	if !containsValue(tokenAuthMethods, "none") {
+		t.Fatalf("token_endpoint_auth_methods_supported must include none")
+	}
+	if !containsValue(tokenAuthMethods, "client_secret_basic") {
+		t.Fatalf("token_endpoint_auth_methods_supported must include client_secret_basic")
+	}
 }
 
 func TestAuthorizeAndTokenFlow(t *testing.T) {
@@ -259,6 +269,78 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	}
 	if reuseRefreshErr["error"] != "invalid_grant" {
 		t.Fatalf("expected invalid_grant for refresh reuse, got %s", reuseRefreshErr["error"])
+	}
+}
+
+func TestTokenFlowWithClientSecretBasic(t *testing.T) {
+	t.Parallel()
+
+	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+	h := NewHandler(provider)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	codeChallenge := pkceS256(testCodeVerifier)
+	authReq := httptest.NewRequest(
+		http.MethodGet,
+		"/oauth2/authorize?response_type=code&client_id="+url.QueryEscape(core.DefaultConfidentialClientID)+
+			"&redirect_uri="+url.QueryEscape(core.DefaultConfidentialRedirect)+
+			"&scope="+url.QueryEscape("openid")+
+			"&state="+url.QueryEscape("handler-confidential-state")+
+			"&code_challenge="+url.QueryEscape(codeChallenge)+
+			"&code_challenge_method=S256",
+		nil,
+	)
+	authRec := httptest.NewRecorder()
+	mux.ServeHTTP(authRec, authReq)
+	if authRec.Code != http.StatusFound {
+		t.Fatalf("expected 302 for authorize, got %d", authRec.Code)
+	}
+	code := queryParam(t, authRec.Header().Get("Location"), "code")
+	if code == "" {
+		t.Fatalf("authorize redirect must include code")
+	}
+
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {core.DefaultConfidentialRedirect},
+		"code_verifier": {testCodeVerifier},
+	}
+	tokenReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tokenReq.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(core.DefaultConfidentialClientID+":wrong-secret")))
+	tokenRec := httptest.NewRecorder()
+	mux.ServeHTTP(tokenRec, tokenReq)
+	if tokenRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for invalid basic credentials, got %d", tokenRec.Code)
+	}
+	var tokenErr map[string]string
+	if err := json.Unmarshal(tokenRec.Body.Bytes(), &tokenErr); err != nil {
+		t.Fatalf("invalid token error json: %v", err)
+	}
+	if tokenErr["error"] != "invalid_client" {
+		t.Fatalf("expected invalid_client, got %s", tokenErr["error"])
+	}
+
+	validReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+	validReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	validReq.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(core.DefaultConfidentialClientID+":"+core.DefaultConfidentialClientSecret)))
+	validRec := httptest.NewRecorder()
+	mux.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid basic credentials, got %d", validRec.Code)
+	}
+	var tokenResp map[string]any
+	if err := json.Unmarshal(validRec.Body.Bytes(), &tokenResp); err != nil {
+		t.Fatalf("invalid token json: %v", err)
+	}
+	if tokenResp["access_token"] == "" {
+		t.Fatalf("token response must include access_token")
 	}
 }
 

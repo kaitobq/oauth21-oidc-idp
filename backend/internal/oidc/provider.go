@@ -18,13 +18,16 @@ import (
 )
 
 const (
-	DefaultDevClientID       = "local-dev-client"
-	DefaultDevClientRedirect = "http://localhost:3000/callback"
-	defaultACRValue          = "urn:example:loa:1"
-	defaultAMRMethod         = "pwd"
-	authCodeTTL              = 5 * time.Minute
-	accessTokenTTLSeconds    = int64(3600)
-	refreshTokenTTL          = 30 * 24 * time.Hour
+	DefaultDevClientID              = "local-dev-client"
+	DefaultDevClientRedirect        = "http://localhost:3000/callback"
+	DefaultConfidentialClientID     = "local-confidential-client"
+	DefaultConfidentialClientSecret = "local-confidential-secret"
+	DefaultConfidentialRedirect     = "http://localhost:3000/callback"
+	defaultACRValue                 = "urn:example:loa:1"
+	defaultAMRMethod                = "pwd"
+	authCodeTTL                     = 5 * time.Minute
+	accessTokenTTLSeconds           = int64(3600)
+	refreshTokenTTL                 = 30 * 24 * time.Hour
 )
 
 // OAuthError maps internal validation failures to OAuth2-compatible responses.
@@ -62,8 +65,10 @@ type Provider struct {
 }
 
 type client struct {
-	ID           string
-	RedirectURIs map[string]struct{}
+	ID                      string
+	RedirectURIs            map[string]struct{}
+	TokenEndpointAuthMethod string
+	ClientSecret            string
 }
 
 type authorizationCode struct {
@@ -164,7 +169,7 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 	hash := sha256.Sum256(pub.N.Bytes())
 	kid := hex.EncodeToString(hash[:8])
 
-	return &Provider{
+	provider := &Provider{
 		issuer:     issuer,
 		privateKey: key,
 		jwks: jwks{Keys: []jwk{{
@@ -177,7 +182,8 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 		}}},
 		clients: map[string]*client{
 			devClientID: {
-				ID: devClientID,
+				ID:                      devClientID,
+				TokenEndpointAuthMethod: "none",
 				RedirectURIs: map[string]struct{}{
 					devClientRedirect: {},
 				},
@@ -185,7 +191,17 @@ func NewProvider(issuer, devClientID, devClientRedirect string) (*Provider, erro
 		},
 		authCodes: map[string]*authorizationCode{},
 		tokens:    map[string]*refreshTokenGrant{},
-	}, nil
+	}
+
+	if err := provider.RegisterConfidentialClient(
+		DefaultConfidentialClientID,
+		DefaultConfidentialClientSecret,
+		DefaultConfidentialRedirect,
+	); err != nil {
+		return nil, fmt.Errorf("register default confidential client: %w", err)
+	}
+
+	return provider, nil
 }
 
 func (p *Provider) Discovery() discoveryDocument {
@@ -221,12 +237,86 @@ func (p *Provider) Discovery() discoveryDocument {
 		},
 		TokenEndpointAuthMethodsSupported: []string{
 			"none",
+			"client_secret_basic",
 		},
 	}
 }
 
 func (p *Provider) JWKS() jwks {
 	return p.jwks
+}
+
+func (p *Provider) RegisterConfidentialClient(clientID, clientSecret, redirectURI string) error {
+	clientID = strings.TrimSpace(clientID)
+	clientSecret = strings.TrimSpace(clientSecret)
+	redirectURI = strings.TrimSpace(redirectURI)
+
+	if clientID == "" {
+		return fmt.Errorf("confidential client_id must not be empty")
+	}
+	if clientSecret == "" {
+		return fmt.Errorf("confidential client_secret must not be empty")
+	}
+	if redirectURI == "" {
+		return fmt.Errorf("confidential redirect_uri must not be empty")
+	}
+	if _, err := url.ParseRequestURI(redirectURI); err != nil {
+		return fmt.Errorf("invalid confidential client redirect uri: %w", err)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.clients[clientID] = &client{
+		ID:                      clientID,
+		TokenEndpointAuthMethod: "client_secret_basic",
+		ClientSecret:            clientSecret,
+		RedirectURIs: map[string]struct{}{
+			redirectURI: {},
+		},
+	}
+	return nil
+}
+
+func (p *Provider) AuthenticateTokenClient(clientID, clientSecret, authMethod string) error {
+	clientID = strings.TrimSpace(clientID)
+	authMethod = strings.TrimSpace(authMethod)
+	if authMethod == "" {
+		authMethod = "none"
+	}
+	if clientID == "" {
+		return &OAuthError{Code: "invalid_request", Description: "client_id is required", Status: 400}
+	}
+
+	p.mu.Lock()
+	c, ok := p.clients[clientID]
+	p.mu.Unlock()
+	if !ok {
+		return &OAuthError{Code: "invalid_client", Description: "unknown client_id", Status: 401}
+	}
+
+	requiredMethod := c.TokenEndpointAuthMethod
+	if requiredMethod == "" {
+		requiredMethod = "none"
+	}
+	if requiredMethod != authMethod {
+		return &OAuthError{Code: "invalid_client", Description: "client authentication method is invalid", Status: 401}
+	}
+
+	switch requiredMethod {
+	case "none":
+		return nil
+	case "client_secret_basic":
+		if clientSecret == "" {
+			return &OAuthError{Code: "invalid_client", Description: "client_secret is required", Status: 401}
+		}
+		if subtle.ConstantTimeCompare([]byte(clientSecret), []byte(c.ClientSecret)) != 1 {
+			return &OAuthError{Code: "invalid_client", Description: "client authentication failed", Status: 401}
+		}
+		return nil
+	default:
+		return &OAuthError{Code: "server_error", Description: "unsupported client authentication configuration", Status: 500}
+	}
 }
 
 func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, nonce, acrValues, codeChallenge, codeChallengeMethod string) (string, error) {
