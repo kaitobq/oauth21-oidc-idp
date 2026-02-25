@@ -395,6 +395,74 @@ func TestAuthenticateTokenClient(t *testing.T) {
 	assertOAuthError(t, expiredAssertionErr, "invalid_client")
 }
 
+func TestRotatePrivateJWTClientKey(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(testIssuer, testClientID, testRedirectURI)
+	if err != nil {
+		t.Fatalf("NewProvider error: %v", err)
+	}
+
+	privateKey1 := mustGenerateTestPrivateKeyPEM(t)
+	if err := provider.RegisterPrivateJWTClient(
+		DefaultPrivateJWTClientID,
+		DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, privateKey1),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
+
+	assertPrivateJWTClientAuthentication(t, provider, privateKey1)
+
+	privateKey2 := mustGenerateTestPrivateKeyPEM(t)
+	kid2, err := provider.RotatePrivateJWTClientKey(
+		DefaultPrivateJWTClientID,
+		mustPublicKeyPEMFromPrivateKey(t, privateKey2),
+	)
+	if err != nil {
+		t.Fatalf("RotatePrivateJWTClientKey first rotation error: %v", err)
+	}
+	if kid2 == "" {
+		t.Fatalf("first rotated kid must not be empty")
+	}
+
+	assertPrivateJWTClientAuthentication(t, provider, privateKey2)
+	assertPrivateJWTClientAuthentication(t, provider, privateKey1)
+
+	privateKey3 := mustGenerateTestPrivateKeyPEM(t)
+	kid3, err := provider.RotatePrivateJWTClientKey(
+		DefaultPrivateJWTClientID,
+		mustPublicKeyPEMFromPrivateKey(t, privateKey3),
+	)
+	if err != nil {
+		t.Fatalf("RotatePrivateJWTClientKey second rotation error: %v", err)
+	}
+	if kid3 == "" {
+		t.Fatalf("second rotated kid must not be empty")
+	}
+	if kid3 == kid2 {
+		t.Fatalf("second rotated kid must differ from previous rotated kid")
+	}
+
+	assertPrivateJWTClientAuthentication(t, provider, privateKey3)
+	assertPrivateJWTClientAuthentication(t, provider, privateKey2)
+
+	evictedKeyAssertion := signClientAssertion(
+		t,
+		privateKey1,
+		DefaultPrivateJWTClientID,
+		testIssuer+"/oauth2/token",
+		time.Now().UTC().Add(5*time.Minute),
+	)
+	evictedKeyErr := provider.AuthenticateTokenClient(TokenClientAuthentication{
+		ClientID:            DefaultPrivateJWTClientID,
+		AuthMethod:          TokenEndpointAuthMethodPrivate,
+		ClientAssertionType: ClientAssertionTypeJWTBearer,
+		ClientAssertion:     evictedKeyAssertion,
+	})
+	assertOAuthError(t, evictedKeyErr, "invalid_client")
+}
+
 func TestExchangeAuthorizationCodeRejectVerifierMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -753,6 +821,26 @@ func signClientAssertion(t *testing.T, privateKeyPEM, clientID, audience string,
 		t.Fatalf("sign jwt error: %v", err)
 	}
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func assertPrivateJWTClientAuthentication(t *testing.T, provider *Provider, privateKeyPEM string) {
+	t.Helper()
+
+	assertion := signClientAssertion(
+		t,
+		privateKeyPEM,
+		DefaultPrivateJWTClientID,
+		testIssuer+"/oauth2/token",
+		time.Now().UTC().Add(5*time.Minute),
+	)
+	if err := provider.AuthenticateTokenClient(TokenClientAuthentication{
+		ClientID:            DefaultPrivateJWTClientID,
+		AuthMethod:          TokenEndpointAuthMethodPrivate,
+		ClientAssertionType: ClientAssertionTypeJWTBearer,
+		ClientAssertion:     assertion,
+	}); err != nil {
+		t.Fatalf("private_key_jwt client authentication must succeed: %v", err)
+	}
 }
 
 func mustGenerateTestPrivateKeyPEM(t *testing.T) string {

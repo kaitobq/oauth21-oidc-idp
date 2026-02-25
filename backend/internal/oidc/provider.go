@@ -37,6 +37,7 @@ const (
 	accessTokenTTLSeconds           = int64(3600)
 	refreshTokenTTL                 = 30 * 24 * time.Hour
 	defaultMaxPublishedSigningKeys  = 2
+	defaultMaxClientSigningKeys     = 2
 )
 
 // OAuthError maps internal validation failures to OAuth2-compatible responses.
@@ -83,7 +84,13 @@ type client struct {
 	RedirectURIs            map[string]struct{}
 	TokenEndpointAuthMethod string
 	ClientSecret            string
-	JWTSigningPublicKey     *rsa.PublicKey
+	JWTSigningKeys          []clientSigningKey
+	MaxJWTSigningKeys       int
+}
+
+type clientSigningKey struct {
+	PublicKey *rsa.PublicKey
+	KID       string
 }
 
 type TokenClientAuthentication struct {
@@ -370,7 +377,7 @@ func (p *Provider) RegisterPrivateJWTClient(clientID, redirectURI, publicKeyPEM 
 	if _, err := url.ParseRequestURI(redirectURI); err != nil {
 		return fmt.Errorf("invalid private_key_jwt client redirect uri: %w", err)
 	}
-	publicKey, err := parseRSAPublicKeyPEM(publicKeyPEM)
+	signingKey, err := parseClientSigningKeyPEM(publicKeyPEM)
 	if err != nil {
 		return fmt.Errorf("parse private_key_jwt public key: %w", err)
 	}
@@ -381,12 +388,54 @@ func (p *Provider) RegisterPrivateJWTClient(clientID, redirectURI, publicKeyPEM 
 	p.clients[clientID] = &client{
 		ID:                      clientID,
 		TokenEndpointAuthMethod: TokenEndpointAuthMethodPrivate,
-		JWTSigningPublicKey:     publicKey,
+		JWTSigningKeys:          []clientSigningKey{signingKey},
+		MaxJWTSigningKeys:       defaultMaxClientSigningKeys,
 		RedirectURIs: map[string]struct{}{
 			redirectURI: {},
 		},
 	}
 	return nil
+}
+
+func (p *Provider) RotatePrivateJWTClientKey(clientID, publicKeyPEM string) (string, error) {
+	clientID = strings.TrimSpace(clientID)
+	publicKeyPEM = strings.TrimSpace(publicKeyPEM)
+	if clientID == "" {
+		return "", fmt.Errorf("private_key_jwt client_id must not be empty")
+	}
+	if publicKeyPEM == "" {
+		return "", fmt.Errorf("private_key_jwt public key must not be empty")
+	}
+
+	signingKey, err := parseClientSigningKeyPEM(publicKeyPEM)
+	if err != nil {
+		return "", fmt.Errorf("parse private_key_jwt public key: %w", err)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	c, ok := p.clients[clientID]
+	if !ok {
+		return "", fmt.Errorf("private_key_jwt client is not registered")
+	}
+	if c.TokenEndpointAuthMethod != TokenEndpointAuthMethodPrivate {
+		return "", fmt.Errorf("client is not configured for private_key_jwt")
+	}
+
+	if len(c.JWTSigningKeys) > 0 && c.JWTSigningKeys[0].KID == signingKey.KID {
+		return signingKey.KID, nil
+	}
+
+	c.JWTSigningKeys = append([]clientSigningKey{signingKey}, c.JWTSigningKeys...)
+	maxKeys := c.MaxJWTSigningKeys
+	if maxKeys < 1 {
+		maxKeys = 1
+	}
+	if len(c.JWTSigningKeys) > maxKeys {
+		c.JWTSigningKeys = c.JWTSigningKeys[:maxKeys]
+	}
+	return signingKey.KID, nil
 }
 
 func (p *Provider) AuthenticateTokenClient(auth TokenClientAuthentication) error {
@@ -403,16 +452,18 @@ func (p *Provider) AuthenticateTokenClient(auth TokenClientAuthentication) error
 	}
 
 	p.mu.Lock()
-	c, ok := p.clients[clientID]
-	p.mu.Unlock()
-	if !ok {
+	c, found := p.clients[clientID]
+	if !found {
+		p.mu.Unlock()
 		return &OAuthError{Code: "invalid_client", Description: "unknown client_id", Status: 401}
 	}
-
 	requiredMethod := c.TokenEndpointAuthMethod
 	if requiredMethod == "" {
 		requiredMethod = TokenEndpointAuthMethodNone
 	}
+	storedClientSecret := c.ClientSecret
+	jwtSigningKeys := append([]clientSigningKey(nil), c.JWTSigningKeys...)
+	p.mu.Unlock()
 	if requiredMethod != authMethod {
 		return &OAuthError{Code: "invalid_client", Description: "client authentication method is invalid", Status: 401}
 	}
@@ -424,7 +475,7 @@ func (p *Provider) AuthenticateTokenClient(auth TokenClientAuthentication) error
 		if clientSecret == "" {
 			return &OAuthError{Code: "invalid_client", Description: "client_secret is required", Status: 401}
 		}
-		if subtle.ConstantTimeCompare([]byte(clientSecret), []byte(c.ClientSecret)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(clientSecret), []byte(storedClientSecret)) != 1 {
 			return &OAuthError{Code: "invalid_client", Description: "client authentication failed", Status: 401}
 		}
 		return nil
@@ -435,7 +486,7 @@ func (p *Provider) AuthenticateTokenClient(auth TokenClientAuthentication) error
 		if clientAssertion == "" {
 			return &OAuthError{Code: "invalid_client", Description: "client_assertion is required", Status: 401}
 		}
-		if c.JWTSigningPublicKey == nil {
+		if len(jwtSigningKeys) == 0 {
 			return &OAuthError{Code: "server_error", Description: "private_key_jwt key is not configured", Status: 500}
 		}
 		header, claims, signingInput, signature, err := parseTokenAssertion(clientAssertion)
@@ -446,7 +497,17 @@ func (p *Provider) AuthenticateTokenClient(auth TokenClientAuthentication) error
 			return &OAuthError{Code: "invalid_client", Description: "client_assertion alg must be RS256", Status: 401}
 		}
 		digest := sha256.Sum256([]byte(signingInput))
-		if err := rsa.VerifyPKCS1v15(c.JWTSigningPublicKey, crypto.SHA256, digest[:], signature); err != nil {
+		validSignature := false
+		for _, signingKey := range jwtSigningKeys {
+			if signingKey.PublicKey == nil {
+				continue
+			}
+			if err := rsa.VerifyPKCS1v15(signingKey.PublicKey, crypto.SHA256, digest[:], signature); err == nil {
+				validSignature = true
+				break
+			}
+		}
+		if !validSignature {
 			return &OAuthError{Code: "invalid_client", Description: "client_assertion signature verification failed", Status: 401}
 		}
 		if claims.Iss != clientID || claims.Sub != clientID {
@@ -832,6 +893,19 @@ func generateSigningKey() (signingKey, error) {
 			N:   n,
 			E:   e,
 		},
+	}, nil
+}
+
+func parseClientSigningKeyPEM(publicKeyPEM string) (clientSigningKey, error) {
+	publicKey, err := parseRSAPublicKeyPEM(publicKeyPEM)
+	if err != nil {
+		return clientSigningKey{}, err
+	}
+	hash := sha256.Sum256(publicKey.N.Bytes())
+	kid := hex.EncodeToString(hash[:8])
+	return clientSigningKey{
+		PublicKey: publicKey,
+		KID:       kid,
 	}, nil
 }
 

@@ -62,8 +62,16 @@ func NewContainer() (*Container, error) {
 		}
 	}
 	oidc := oidcHandler.NewHandler(provider)
-	if cfg.EnableSigningKeyRotationAPI {
+	if cfg.EnableSigningKeyRotationAPI && cfg.EnablePrivateJWTKeyRotation {
+		oidc = oidcHandler.NewHandlerWithAdminAPIs(
+			provider,
+			cfg.SigningKeyRotationToken,
+			cfg.PrivateJWTKeyRotationToken,
+		)
+	} else if cfg.EnableSigningKeyRotationAPI {
 		oidc = oidcHandler.NewHandlerWithSigningKeyRotation(provider, cfg.SigningKeyRotationToken)
+	} else if cfg.EnablePrivateJWTKeyRotation {
+		oidc = oidcHandler.NewHandlerWithPrivateJWTClientKeyRotation(provider, cfg.PrivateJWTKeyRotationToken)
 	}
 
 	container := &Container{
