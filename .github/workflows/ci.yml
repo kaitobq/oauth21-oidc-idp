@@ -37,9 +37,9 @@ jobs:
           node-version: "22"
       - uses: bufbuild/buf-setup-action@v1
       - run: |
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
-          npm install -g @bufbuild/protoc-gen-es @connectrpc/protoc-gen-connect-es
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.5
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.18.1
+          npm install -g @bufbuild/protoc-gen-es@2.11.0 @connectrpc/protoc-gen-connect-es@1.7.0
       - run: ./scripts/gen.sh
       - run: ./scripts/check-generated.sh
 
