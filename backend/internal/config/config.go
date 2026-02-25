@@ -13,6 +13,9 @@ type Config struct {
 	EnableOrganizationAPI bool
 	DevClientID           string
 	DevClientRedirectURI  string
+	ConfidentialClientID  string
+	ConfidentialSecret    string
+	ConfidentialRedirect  string
 
 	DBHost     string
 	DBPort     string
@@ -29,6 +32,9 @@ func Load() *Config {
 		EnableOrganizationAPI: getEnvBool("ENABLE_ORGANIZATION_API", false),
 		DevClientID:           getEnv("OIDC_DEV_CLIENT_ID", "local-dev-client"),
 		DevClientRedirectURI:  getEnv("OIDC_DEV_REDIRECT_URI", "http://localhost:3000/callback"),
+		ConfidentialClientID:  getEnv("OIDC_CONFIDENTIAL_CLIENT_ID", "local-confidential-client"),
+		ConfidentialSecret:    getEnv("OIDC_CONFIDENTIAL_CLIENT_SECRET", "local-confidential-secret"),
+		ConfidentialRedirect:  getEnv("OIDC_CONFIDENTIAL_REDIRECT_URI", "http://localhost:3000/callback"),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),

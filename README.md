@@ -78,11 +78,14 @@ BASE_URL=http://localhost:8080 make harness-refresh-rotation
 
 # Validate id_token claims (nonce/auth_time/at_hash/azp/sid/acr/amr)
 BASE_URL=http://localhost:8080 make harness-id-token-claims
+
+# Validate confidential client auth (client_secret_basic)
+BASE_URL=http://localhost:8080 make harness-client-secret-basic
 ```
 
-### Local Dev Client
+### Local Clients
 
-`/oauth2/authorize` と `/oauth2/token` は開発用の公開クライアント1件を事前登録しています。
+`/oauth2/authorize` と `/oauth2/token` は開発用の公開クライアント（`none`）と confidential client（`client_secret_basic`）を事前登録しています。
 `offline_access` scope を付けると `refresh_token` が発行されます。
 `nonce` を `authorize` に指定すると、`id_token` に `nonce` と `auth_time` を含めます。
 `id_token` 発行時は `access_token` 由来の `at_hash` も含めます。
@@ -92,6 +95,9 @@ BASE_URL=http://localhost:8080 make harness-id-token-claims
 
 - `OIDC_DEV_CLIENT_ID`（default: `local-dev-client`）
 - `OIDC_DEV_REDIRECT_URI`（default: `http://localhost:3000/callback`）
+- `OIDC_CONFIDENTIAL_CLIENT_ID`（default: `local-confidential-client`）
+- `OIDC_CONFIDENTIAL_CLIENT_SECRET`（default: `local-confidential-secret`）
+- `OIDC_CONFIDENTIAL_REDIRECT_URI`（default: `http://localhost:3000/callback`）
 
 ## Development
 

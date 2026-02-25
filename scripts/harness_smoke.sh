@@ -78,6 +78,18 @@ for field in issuer jwks_uri authorization_endpoint token_endpoint response_type
   fi
 done
 
+if json_array_contains "$discovery_body" "token_endpoint_auth_methods_supported" "none"; then
+  pass "token_endpoint_auth_methods_supported includes none"
+else
+  fail "token_endpoint_auth_methods_supported must include none"
+fi
+
+if json_array_contains "$discovery_body" "token_endpoint_auth_methods_supported" "client_secret_basic"; then
+  pass "token_endpoint_auth_methods_supported includes client_secret_basic"
+else
+  fail "token_endpoint_auth_methods_supported must include client_secret_basic"
+fi
+
 if json_array_contains "$discovery_body" "grant_types_supported" "authorization_code"; then
   pass "grant_types_supported includes authorization_code"
 else
