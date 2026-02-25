@@ -31,6 +31,12 @@ type Config struct {
 	EnableSigningKeyRotationAPI bool
 	SigningKeyRotationToken     string
 
+	OrganizationAuthMode        string
+	OrganizationAuthStaticToken string
+	OrganizationJWTSecret       string
+	OrganizationJWTIssuer       string
+	OrganizationJWTAudience     string
+
 	DBHost     string
 	DBPort     string
 	DBUser     string
@@ -63,6 +69,11 @@ func Load() *Config {
 		PrivateJWTKeyRotationToken:  getEnv("OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN", "dev-private-jwt-key-rotation-token"),
 		EnableSigningKeyRotationAPI: getEnvBool("OIDC_ENABLE_SIGNING_KEY_ROTATION_API", false),
 		SigningKeyRotationToken:     getEnv("OIDC_SIGNING_KEY_ROTATION_TOKEN", "dev-signing-key-rotation-token"),
+		OrganizationAuthMode:        strings.TrimSpace(strings.ToLower(getEnv("ORGANIZATION_AUTH_MODE", "static"))),
+		OrganizationAuthStaticToken: getEnv("ORGANIZATION_AUTH_STATIC_TOKEN", "dev-organization-admin-token"),
+		OrganizationJWTSecret:       getEnv("ORGANIZATION_JWT_HS256_SECRET", ""),
+		OrganizationJWTIssuer:       getEnv("ORGANIZATION_JWT_ISS", ""),
+		OrganizationJWTAudience:     getEnv("ORGANIZATION_JWT_AUD", "organization-api"),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),

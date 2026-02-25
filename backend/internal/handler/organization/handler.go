@@ -3,7 +3,6 @@ package organization
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"connectrpc.com/connect"
 
@@ -15,20 +14,35 @@ import (
 
 // Handler implements the OrganizationService Connect RPC service.
 type Handler struct {
-	facade *app.Facade
+	facade        *app.Facade
+	actorResolver *actorResolver
 }
 
 var _ organizationv1connect.OrganizationServiceHandler = (*Handler)(nil)
 
 // NewHandler creates a new Organization handler.
 func NewHandler(facade *app.Facade) *Handler {
-	return &Handler{facade: facade}
+	return NewHandlerWithAuth(facade, AuthConfig{
+		Mode: OrganizationAuthModeHeader,
+	})
+}
+
+func NewHandlerWithAuth(facade *app.Facade, authConfig AuthConfig) *Handler {
+	return &Handler{
+		facade:        facade,
+		actorResolver: newActorResolver(authConfig),
+	}
 }
 
 func (h *Handler) CreateOrganization(
 	ctx context.Context,
 	req *connect.Request[organizationv1.CreateOrganizationRequest],
 ) (*connect.Response[organizationv1.CreateOrganizationResponse], error) {
+	actor, err := h.actorResolver.Resolve(req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+
 	name, err := domain.NewName(req.Msg.Name)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -38,7 +52,7 @@ func (h *Handler) CreateOrganization(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	dto, err := h.facade.Create(ctx, actorFromHeader(req.Header()), &app.CreateInput{
+	dto, err := h.facade.Create(ctx, actor, &app.CreateInput{
 		Name:        name,
 		DisplayName: displayName,
 	})
@@ -55,11 +69,16 @@ func (h *Handler) GetOrganization(
 	ctx context.Context,
 	req *connect.Request[organizationv1.GetOrganizationRequest],
 ) (*connect.Response[organizationv1.GetOrganizationResponse], error) {
+	actor, err := h.actorResolver.Resolve(req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+
 	id, err := domain.ParseID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	dto, err := h.facade.Get(ctx, actorFromHeader(req.Header()), id)
+	dto, err := h.facade.Get(ctx, actor, id)
 	if err != nil {
 		return nil, connect.NewError(mapAppErrorCode(err), err)
 	}
@@ -73,10 +92,15 @@ func (h *Handler) ListOrganizations(
 	ctx context.Context,
 	req *connect.Request[organizationv1.ListOrganizationsRequest],
 ) (*connect.Response[organizationv1.ListOrganizationsResponse], error) {
+	actor, err := h.actorResolver.Resolve(req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+
 	if req.Msg.PageSize < 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("page_size must be >= 0"))
 	}
-	out, err := h.facade.List(ctx, actorFromHeader(req.Header()), int(req.Msg.PageSize), req.Msg.PageToken)
+	out, err := h.facade.List(ctx, actor, int(req.Msg.PageSize), req.Msg.PageToken)
 	if err != nil {
 		return nil, connect.NewError(mapAppErrorCode(err), err)
 	}
@@ -90,25 +114,6 @@ func (h *Handler) ListOrganizations(
 		Organizations: orgs,
 		NextPageToken: out.NextPageToken,
 	}), nil
-}
-
-func actorFromHeader(header map[string][]string) *app.Actor {
-	sub := ""
-	scopeValue := ""
-	for k, values := range header {
-		if strings.EqualFold(k, "x-actor-sub") && len(values) > 0 {
-			sub = strings.TrimSpace(values[0])
-		}
-		if (strings.EqualFold(k, "x-actor-scopes") || strings.EqualFold(k, "x-actor-scope")) && len(values) > 0 {
-			scopeValue = strings.TrimSpace(values[0])
-		}
-	}
-
-	scopes := []string{}
-	if scopeValue != "" {
-		scopes = strings.Fields(scopeValue)
-	}
-	return app.NewActor(sub, scopes)
 }
 
 func mapAppErrorCode(err error) connect.Code {
