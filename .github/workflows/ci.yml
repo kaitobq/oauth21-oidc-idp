@@ -1,24 +1,68 @@
-name: ci
+name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
-  repository-health:
+  lint-proto:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-      - name: Verify harness script syntax
-        run: bash -n scripts/harness_smoke.sh
-      - name: Verify required files
+      - uses: bufbuild/buf-setup-action@v1
+      - run: cd proto && buf lint
+      - name: Check breaking changes against main (if proto baseline exists)
+        if: github.event_name == 'pull_request'
         run: |
-          test -f AGENTS.md
-          test -f docs/index.md
-          test -f docs/spec/idp-core-requirements.md
-          test -f harness/scenarios/01-oidc-discovery.yaml
-          test -f harness/scenarios/02-auth-code-pkce.yaml
-          test -f harness/scenarios/03-token-refresh-rotation.yaml
-          test -f scripts/harness_smoke.sh
+          git fetch --depth=1 origin main:main
+          if git ls-tree -r --name-only main proto | grep -q '\.proto$'; then
+            cd proto
+            buf breaking --against '../.git#branch=main,subdir=proto'
+          else
+            echo "Skip buf breaking: main has no proto baseline yet."
+          fi
+
+  check-generated:
+    runs-on: ubuntu-latest
+    needs: [lint-proto]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: bufbuild/buf-setup-action@v1
+      - run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.5
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.18.1
+          npm install -g @bufbuild/protoc-gen-es@2.11.0 @connectrpc/protoc-gen-connect-es@1.7.0
+      - run: ./scripts/gen.sh
+      - run: ./scripts/check-generated.sh
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: cd backend && go vet ./...
+      - run: cd backend && go test ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: cd frontend && pnpm install --frozen-lockfile
+      - run: cd frontend && pnpm lint
+      - run: cd frontend && pnpm build

@@ -1,34 +1,77 @@
-# oauth21-oidc-idp
+# OAuth 2.1 / OIDC Identity Provider
 
-OAuth 2.1 / OpenID Connect 準拠の IDP（Identity Provider）を構築するためのリポジトリです。
-この初期セットアップでは、実装前に Harness Engineering の土台を先に用意します。
+OAuth 2.1 と OpenID Connect に準拠した Identity Provider。
 
-## 方針
-- OAuth 2.1 ドラフト（IETF）と OIDC Core 1.0 を基準に要件を定義
-- `AGENTS.md` は最小限の目次として維持
-- 仕様・設計・運用・検証を `docs/` と `harness/` に分離
-- 小さな変更を `harness` で継続検証する
+## Architecture
 
-## クイックスタート
-1. リポジトリ初期化
-   ```bash
-   make bootstrap
-   ```
-2. ローカル IDP を起動（別ターミナル）
-   - 例: `http://localhost:8080`
-3. smoke harness 実行
-   ```bash
-   BASE_URL=http://localhost:8080 make harness-smoke
-   ```
+- **Frontend**: [Vinext](https://github.com/cloudflare/vinext) (Vite + Next.js API surface on Cloudflare Workers)
+- **Backend**: Go + [Connect RPC](https://connectrpc.com/)
+- **Schema**: Protocol Buffers (single source of truth for types)
+- **Build**: [Buf](https://buf.build/) for proto management and code generation
 
-## ディレクトリ
-- `AGENTS.md`: エージェント向け最小ガイド
-- `docs/`: 仕様・設計・運用ドキュメント
-- `harness/`: 検証シナリオと運用ルール
-- `scripts/harness_smoke.sh`: 最小の自動検証スクリプト
+### Backend Layering (DDD + Onion)
 
-## 参考
-- OpenAI: Harnessing engineering agents（公開日: 2026-02-11）
-- IETF OAuth 2.1 Draft / OpenID Connect Core
+- `handler/`: Connect handler, proto <-> VO conversion, facade delegation
+- `application/`: command/query use cases
+- `domain/`: entity, value object, repository interface
+- `infra/`: MySQL/authz implementation
 
-詳細は [docs/index.md](docs/index.md) を参照してください。
+Dependency direction is fixed as `handler -> application -> domain` and `infra -> domain`.
+`domain` must not import `infra`.
+
+### API Contract Policy
+
+- `.proto` is the single source of truth
+- Generated code is committed (`backend/internal/gen`, `frontend/src/gen`)
+- Any `.proto` change must run `make gen`
+
+### AI Collaboration Guardrails
+
+- Humans decide architecture, domain modeling, and authorization policy
+- AI assists with implementation inside established type/layer boundaries
+- Review is done per package/layer (domain, application, infra, handler)
+
+## Directory Structure
+
+```
+proto/          # Protocol Buffers definitions (single source of truth)
+backend/        # Go backend (Connect RPC server)
+frontend/       # Vinext frontend (TypeScript)
+scripts/        # Build and generation scripts
+```
+
+## Prerequisites
+
+- Go 1.23+
+- Node.js 22+ / pnpm 9+
+- [Buf CLI](https://buf.build/docs/installation)
+- [Protoc](https://grpc.io/docs/protoc-installation/)
+
+## Getting Started
+
+```bash
+# Install dependencies
+make setup
+
+# Generate code from proto definitions
+make gen
+
+# Run backend
+make run-backend
+
+# Run frontend
+make run-frontend
+```
+
+## Development
+
+```bash
+# Run all checks
+make check
+
+# Run tests
+make test
+
+# Lint proto files
+make lint-proto
+```

@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package organization.v1;
+
+option go_package = "github.com/kaitobq/oauth21-oidc-idp/backend/internal/gen/organization/v1;organizationv1";
+
+// Organization represents a tenant in the IdP.
+message Organization {
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  int64 created_at = 4;
+  int64 updated_at = 5;
+}
+
+message CreateOrganizationRequest {
+  string name = 1;
+  string display_name = 2;
+}
+
+message CreateOrganizationResponse {
+  Organization organization = 1;
+}
+
+message GetOrganizationRequest {
+  string id = 1;
+}
+
+message GetOrganizationResponse {
+  Organization organization = 1;
+}
+
+message ListOrganizationsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListOrganizationsResponse {
+  repeated Organization organizations = 1;
+  string next_page_token = 2;
+}
+
+service OrganizationService {
+  rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse);
+  rpc GetOrganization(GetOrganizationRequest) returns (GetOrganizationResponse);
+  rpc ListOrganizations(ListOrganizationsRequest) returns (ListOrganizationsResponse);
+}
