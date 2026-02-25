@@ -8,6 +8,7 @@ import (
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/config"
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/gen/organization/v1/organizationv1connect"
 	handler "github.com/kaitobq/oauth21-oidc-idp/backend/internal/handler/organization"
+	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/authz"
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/mysql"
 	infra "github.com/kaitobq/oauth21-oidc-idp/backend/internal/infra/organization"
 )
@@ -27,8 +28,11 @@ func NewContainer() (*Container, error) {
 		return nil, fmt.Errorf("initialize mysql: %w", err)
 	}
 	repo := infra.NewMySQLRepository(db)
+	commandService := app.NewCommandService(repo)
+	queryService := app.NewQueryService(repo)
+	authzGateway := authz.NewNoopGateway()
 
-	facade := app.NewFacade(repo)
+	facade := app.NewFacade(commandService, queryService, authzGateway)
 	orgHandler := handler.NewHandler(facade)
 
 	return &Container{

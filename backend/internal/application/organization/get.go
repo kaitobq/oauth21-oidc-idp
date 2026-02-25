@@ -7,13 +7,19 @@ import (
 	domain "github.com/kaitobq/oauth21-oidc-idp/backend/internal/domain/organization"
 )
 
-func (f *Facade) Get(ctx context.Context, id string) (*DTO, error) {
-	orgID, err := domain.ParseID(id)
-	if err != nil {
-		return nil, fmt.Errorf("invalid id: %w", err)
-	}
+type queryService struct {
+	repo domain.Repository
+}
 
-	entity, err := f.repo.FindByID(ctx, orgID)
+var _ QueryService = (*queryService)(nil)
+
+// NewQueryService creates the read-side organization use cases.
+func NewQueryService(repo domain.Repository) QueryService {
+	return &queryService{repo: repo}
+}
+
+func (s *queryService) Get(ctx context.Context, id domain.ID) (*DTO, error) {
+	entity, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("find organization: %w", err)
 	}
@@ -26,8 +32,8 @@ type ListOutput struct {
 	NextPageToken string
 }
 
-func (f *Facade) List(ctx context.Context, pageSize int, pageToken string) (*ListOutput, error) {
-	entities, nextToken, err := f.repo.List(ctx, pageSize, pageToken)
+func (s *queryService) List(ctx context.Context, pageSize int, pageToken string) (*ListOutput, error) {
+	entities, nextToken, err := s.repo.List(ctx, pageSize, pageToken)
 	if err != nil {
 		return nil, fmt.Errorf("list organizations: %w", err)
 	}

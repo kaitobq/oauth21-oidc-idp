@@ -9,6 +9,28 @@ OAuth 2.1 と OpenID Connect に準拠した Identity Provider。
 - **Schema**: Protocol Buffers (single source of truth for types)
 - **Build**: [Buf](https://buf.build/) for proto management and code generation
 
+### Backend Layering (DDD + Onion)
+
+- `handler/`: Connect handler, proto <-> VO conversion, facade delegation
+- `application/`: command/query use cases
+- `domain/`: entity, value object, repository interface
+- `infra/`: MySQL/authz implementation
+
+Dependency direction is fixed as `handler -> application -> domain` and `infra -> domain`.
+`domain` must not import `infra`.
+
+### API Contract Policy
+
+- `.proto` is the single source of truth
+- Generated code is committed (`backend/internal/gen`, `frontend/src/gen`)
+- Any `.proto` change must run `make gen`
+
+### AI Collaboration Guardrails
+
+- Humans decide architecture, domain modeling, and authorization policy
+- AI assists with implementation inside established type/layer boundaries
+- Review is done per package/layer (domain, application, infra, handler)
+
 ## Directory Structure
 
 ```

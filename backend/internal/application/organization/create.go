@@ -8,23 +8,24 @@ import (
 )
 
 type CreateInput struct {
-	Name        string
-	DisplayName string
+	Name        domain.Name
+	DisplayName domain.DisplayName
 }
 
-func (f *Facade) Create(ctx context.Context, in *CreateInput) (*DTO, error) {
-	name, err := domain.NewName(in.Name)
-	if err != nil {
-		return nil, fmt.Errorf("invalid name: %w", err)
-	}
+type commandService struct {
+	repo domain.Repository
+}
 
-	displayName, err := domain.NewDisplayName(in.DisplayName)
-	if err != nil {
-		return nil, fmt.Errorf("invalid display name: %w", err)
-	}
+var _ CommandService = (*commandService)(nil)
 
-	entity := domain.NewEntity(name, displayName)
-	if err := f.repo.Save(ctx, entity); err != nil {
+// NewCommandService creates the write-side organization use cases.
+func NewCommandService(repo domain.Repository) CommandService {
+	return &commandService{repo: repo}
+}
+
+func (s *commandService) Create(ctx context.Context, in *CreateInput) (*DTO, error) {
+	entity := domain.NewEntity(in.Name, in.DisplayName)
+	if err := s.repo.Save(ctx, entity); err != nil {
 		return nil, fmt.Errorf("save organization: %w", err)
 	}
 

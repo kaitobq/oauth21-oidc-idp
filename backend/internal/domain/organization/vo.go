@@ -3,6 +3,8 @@ package organization
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/kaitobq/oauth21-oidc-idp/backend/internal/domain/organization/internal/uid"
 )
@@ -27,10 +29,12 @@ func (id ID) String() string { return string(id) }
 type Name string
 
 func NewName(s string) (Name, error) {
-	if len(s) < 1 || len(s) > 63 {
-		return "", fmt.Errorf("organization name must be 1-63 characters, got %d", len(s))
+	trimmed := strings.TrimSpace(s)
+	n := utf8.RuneCountInString(trimmed)
+	if n < 1 || n > 63 {
+		return "", fmt.Errorf("organization name must be 1-63 characters, got %d", n)
 	}
-	return Name(s), nil
+	return Name(trimmed), nil
 }
 
 func (n Name) String() string { return string(n) }
@@ -39,10 +43,12 @@ func (n Name) String() string { return string(n) }
 type DisplayName string
 
 func NewDisplayName(s string) (DisplayName, error) {
-	if len(s) < 1 || len(s) > 255 {
-		return "", fmt.Errorf("display name must be 1-255 characters, got %d", len(s))
+	trimmed := strings.TrimSpace(s)
+	n := utf8.RuneCountInString(trimmed)
+	if n < 1 || n > 255 {
+		return "", fmt.Errorf("display name must be 1-255 characters, got %d", n)
 	}
-	return DisplayName(s), nil
+	return DisplayName(trimmed), nil
 }
 
 func (d DisplayName) String() string { return string(d) }
