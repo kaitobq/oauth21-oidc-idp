@@ -18,6 +18,7 @@ const (
 	testClientID     = "test-client"
 	testRedirectURI  = "http://localhost:3000/callback"
 	testCodeVerifier = "this-is-a-long-enough-code-verifier-for-handler-tests-123456789"
+	testNonce        = "nonce-handler-test-123"
 )
 
 func TestDiscoveryEndpoint(t *testing.T) {
@@ -85,6 +86,7 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 			"&redirect_uri="+url.QueryEscape(testRedirectURI)+
 			"&scope="+url.QueryEscape("openid profile offline_access")+
 			"&state="+url.QueryEscape("handler-state")+
+			"&nonce="+url.QueryEscape(testNonce)+
 			"&code_challenge="+url.QueryEscape(codeChallenge)+
 			"&code_challenge_method=S256",
 		nil,
@@ -127,6 +129,18 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	}
 	if tokenResp["id_token"] == "" {
 		t.Fatalf("id_token must not be empty for openid scope")
+	}
+	idToken, ok := tokenResp["id_token"].(string)
+	if !ok || idToken == "" {
+		t.Fatalf("id_token must be string")
+	}
+	idTokenClaims := parseJWTClaims(t, idToken)
+	if idTokenClaims["nonce"] != testNonce {
+		t.Fatalf("id_token nonce mismatch: %v", idTokenClaims["nonce"])
+	}
+	authTime, ok := idTokenClaims["auth_time"].(float64)
+	if !ok {
+		t.Fatalf("id_token must include numeric auth_time")
 	}
 	refreshToken, ok := tokenResp["refresh_token"].(string)
 	if !ok || refreshToken == "" {
@@ -173,6 +187,17 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	if nextRefreshToken == refreshToken {
 		t.Fatalf("refresh token must be rotated")
 	}
+	refreshIDToken, ok := refreshResp["id_token"].(string)
+	if !ok || refreshIDToken == "" {
+		t.Fatalf("refresh exchange must return id_token")
+	}
+	refreshIDTokenClaims := parseJWTClaims(t, refreshIDToken)
+	if _, ok := refreshIDTokenClaims["nonce"]; ok {
+		t.Fatalf("refresh id_token must not include nonce")
+	}
+	if refreshIDTokenClaims["auth_time"] != authTime {
+		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", refreshIDTokenClaims["auth_time"], authTime)
+	}
 
 	reuseRefreshReq := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(refreshForm.Encode()))
 	reuseRefreshReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -199,6 +224,25 @@ func queryParam(t *testing.T, rawURL, name string) string {
 		t.Fatalf("parse url error: %v", err)
 	}
 	return parsed.Query().Get(name)
+}
+
+func parseJWTClaims(t *testing.T, rawToken string) map[string]any {
+	t.Helper()
+
+	parts := strings.Split(rawToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("invalid jwt format")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode jwt payload error: %v", err)
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("unmarshal jwt claims error: %v", err)
+	}
+	return claims
 }
 
 func pkceS256(verifier string) string {

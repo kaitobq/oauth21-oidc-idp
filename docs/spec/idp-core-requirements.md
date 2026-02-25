@@ -33,6 +33,8 @@ OAuth 2.1 / OIDC の基本要件を満たす IDP を実装し、相互運用性�
    - `aud`
    - `exp`
    - `iat`
+4. `nonce` が認可リクエストで与えられた場合、ID Token に `nonce` を含める。
+5. ID Token に `auth_time` を含める。
 
 ### 4. Security & Operations
 1. 署名鍵ローテーション手順を定義する。

@@ -65,24 +65,27 @@ type client struct {
 }
 
 type authorizationCode struct {
-	Code          string
-	ClientID      string
-	RedirectURI   string
-	Scope         string
-	State         string
-	CodeChallenge string
-	Subject       string
-	ExpiresAt     time.Time
-	Used          bool
+	Code            string
+	ClientID        string
+	RedirectURI     string
+	Scope           string
+	State           string
+	Nonce           string
+	AuthenticatedAt time.Time
+	CodeChallenge   string
+	Subject         string
+	ExpiresAt       time.Time
+	Used            bool
 }
 
 type refreshTokenGrant struct {
-	Token     string
-	ClientID  string
-	Subject   string
-	Scope     string
-	ExpiresAt time.Time
-	Used      bool
+	Token           string
+	ClientID        string
+	Subject         string
+	Scope           string
+	AuthenticatedAt time.Time
+	ExpiresAt       time.Time
+	Used            bool
 }
 
 type jwks struct {
@@ -214,13 +217,14 @@ func (p *Provider) JWKS() jwks {
 	return p.jwks
 }
 
-func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) (string, error) {
+func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string) (string, error) {
 	responseType = strings.TrimSpace(responseType)
 	clientID = strings.TrimSpace(clientID)
 	redirectURI = strings.TrimSpace(redirectURI)
 	codeChallenge = strings.TrimSpace(codeChallenge)
 	codeChallengeMethod = strings.TrimSpace(codeChallengeMethod)
 	scope = strings.TrimSpace(scope)
+	nonce = strings.TrimSpace(nonce)
 
 	if responseType != "code" {
 		return "", &OAuthError{Code: "unsupported_response_type", Description: "response_type must be code", Status: 400}
@@ -257,15 +261,18 @@ func (p *Provider) Authorize(responseType, clientID, redirectURI, scope, state, 
 		scope = "openid"
 	}
 
+	authenticatedAt := time.Now().UTC()
 	p.authCodes[code] = &authorizationCode{
-		Code:          code,
-		ClientID:      clientID,
-		RedirectURI:   redirectURI,
-		Scope:         scope,
-		State:         state,
-		CodeChallenge: codeChallenge,
-		Subject:       "user-0001",
-		ExpiresAt:     time.Now().UTC().Add(authCodeTTL),
+		Code:            code,
+		ClientID:        clientID,
+		RedirectURI:     redirectURI,
+		Scope:           scope,
+		State:           state,
+		Nonce:           nonce,
+		AuthenticatedAt: authenticatedAt,
+		CodeChallenge:   codeChallenge,
+		Subject:         "user-0001",
+		ExpiresAt:       authenticatedAt.Add(authCodeTTL),
 	}
 
 	u, err := url.Parse(redirectURI)
@@ -329,6 +336,8 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 	entry.Used = true
 	subject := entry.Subject
 	scope := entry.Scope
+	nonce := entry.Nonce
+	authenticatedAt := entry.AuthenticatedAt
 	p.mu.Unlock()
 
 	accessToken, err := randomToken(32)
@@ -350,18 +359,19 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 		}
 		p.mu.Lock()
 		p.tokens[refreshToken] = &refreshTokenGrant{
-			Token:     refreshToken,
-			ClientID:  clientID,
-			Subject:   subject,
-			Scope:     scope,
-			ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
+			Token:           refreshToken,
+			ClientID:        clientID,
+			Subject:         subject,
+			Scope:           scope,
+			AuthenticatedAt: authenticatedAt,
+			ExpiresAt:       time.Now().UTC().Add(refreshTokenTTL),
 		}
 		p.mu.Unlock()
 		resp.RefreshToken = refreshToken
 	}
 
 	if hasScope(scope, "openid") {
-		idToken, err := p.signIDToken(subject, clientID)
+		idToken, err := p.signIDToken(subject, clientID, nonce, authenticatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -415,6 +425,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 
 	entry.Used = true
 	subject := entry.Subject
+	authenticatedAt := entry.AuthenticatedAt
 	p.mu.Unlock()
 
 	accessToken, err := randomToken(32)
@@ -428,11 +439,12 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 
 	p.mu.Lock()
 	p.tokens[nextRefreshToken] = &refreshTokenGrant{
-		Token:     nextRefreshToken,
-		ClientID:  clientID,
-		Subject:   subject,
-		Scope:     issuedScope,
-		ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
+		Token:           nextRefreshToken,
+		ClientID:        clientID,
+		Subject:         subject,
+		Scope:           issuedScope,
+		AuthenticatedAt: authenticatedAt,
+		ExpiresAt:       time.Now().UTC().Add(refreshTokenTTL),
 	}
 	p.mu.Unlock()
 
@@ -445,7 +457,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 	}
 
 	if hasScope(issuedScope, "openid") {
-		idToken, err := p.signIDToken(subject, clientID)
+		idToken, err := p.signIDToken(subject, clientID, "", authenticatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -455,7 +467,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 	return resp, nil
 }
 
-func (p *Provider) signIDToken(subject, audience string) (string, error) {
+func (p *Provider) signIDToken(subject, audience, nonce string, authenticatedAt time.Time) (string, error) {
 	now := time.Now().UTC()
 	header := map[string]string{
 		"alg": "RS256",
@@ -468,6 +480,12 @@ func (p *Provider) signIDToken(subject, audience string) (string, error) {
 		"aud": audience,
 		"iat": now.Unix(),
 		"exp": now.Add(time.Hour).Unix(),
+	}
+	if !authenticatedAt.IsZero() {
+		claims["auth_time"] = authenticatedAt.Unix()
+	}
+	if nonce != "" {
+		claims["nonce"] = nonce
 	}
 
 	headerBytes, err := json.Marshal(header)

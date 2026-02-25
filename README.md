@@ -75,12 +75,16 @@ BASE_URL=http://localhost:8080 make harness-auth-code-pkce
 
 # Validate refresh token rotation flow
 BASE_URL=http://localhost:8080 make harness-refresh-rotation
+
+# Validate id_token claims (nonce/auth_time)
+BASE_URL=http://localhost:8080 make harness-id-token-claims
 ```
 
 ### Local Dev Client
 
 `/oauth2/authorize` と `/oauth2/token` は開発用の公開クライアント1件を事前登録しています。
 `offline_access` scope を付けると `refresh_token` が発行されます。
+`nonce` を `authorize` に指定すると、`id_token` に `nonce` と `auth_time` を含めます。
 
 - `OIDC_DEV_CLIENT_ID`（default: `local-dev-client`）
 - `OIDC_DEV_REDIRECT_URI`（default: `http://localhost:3000/callback`）

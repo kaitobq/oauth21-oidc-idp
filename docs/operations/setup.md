@@ -22,6 +22,7 @@
    BASE_URL=http://localhost:8080 make harness-smoke
    BASE_URL=http://localhost:8080 make harness-auth-code-pkce
    BASE_URL=http://localhost:8080 make harness-refresh-rotation
+   BASE_URL=http://localhost:8080 make harness-id-token-claims
    ```
 
 ## Verification Checklist
@@ -34,6 +35,8 @@
 - 同じ authorization code の再利用が `invalid_grant` で拒否される
 - `token`(`refresh_token`) が 200 で新しい `refresh_token` を返す
 - 旧 refresh_token の再利用が `invalid_grant` で拒否される
+- `authorize` の `nonce` が `id_token` に反映される
+- `id_token` が `auth_time` を含む
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール

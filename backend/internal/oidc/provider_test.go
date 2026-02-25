@@ -3,7 +3,9 @@ package oidc
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -12,6 +14,7 @@ const (
 	testClientID     = "test-client"
 	testRedirectURI  = "http://localhost:3000/callback"
 	testCodeVerifier = "this-is-a-long-enough-code-verifier-for-tests-123456789"
+	testNonce        = "nonce-provider-test-123"
 )
 
 func TestProviderDiscoveryAndJWKS(t *testing.T) {
@@ -75,6 +78,7 @@ func TestAuthorizeAndExchangeAuthorizationCodeSuccess(t *testing.T) {
 		testRedirectURI,
 		"openid profile",
 		"state-1",
+		testNonce,
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -115,6 +119,13 @@ func TestAuthorizeAndExchangeAuthorizationCodeSuccess(t *testing.T) {
 	if tokenResp.RefreshToken != "" {
 		t.Fatalf("refresh_token must not be returned without offline_access scope")
 	}
+	claims := parseJWTClaims(t, tokenResp.IDToken)
+	if claims["nonce"] != testNonce {
+		t.Fatalf("id_token nonce mismatch: %v", claims["nonce"])
+	}
+	if _, ok := claims["auth_time"].(float64); !ok {
+		t.Fatalf("id_token must include numeric auth_time")
+	}
 }
 
 func TestExchangeAuthorizationCodeRejectReuse(t *testing.T) {
@@ -131,6 +142,7 @@ func TestExchangeAuthorizationCodeRejectReuse(t *testing.T) {
 		testRedirectURI,
 		"openid",
 		"state-reuse",
+		"",
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -177,6 +189,7 @@ func TestExchangeAuthorizationCodeRejectVerifierMismatch(t *testing.T) {
 		testRedirectURI,
 		"openid",
 		"state-mismatch",
+		"",
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -212,6 +225,7 @@ func TestRefreshTokenRotation(t *testing.T) {
 		testRedirectURI,
 		"openid offline_access",
 		"state-refresh",
+		testNonce,
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -233,6 +247,14 @@ func TestRefreshTokenRotation(t *testing.T) {
 	if firstTokenResp.RefreshToken == "" {
 		t.Fatalf("refresh_token must be returned for offline_access scope")
 	}
+	firstClaims := parseJWTClaims(t, firstTokenResp.IDToken)
+	if firstClaims["nonce"] != testNonce {
+		t.Fatalf("first id_token nonce mismatch: %v", firstClaims["nonce"])
+	}
+	authTime, ok := firstClaims["auth_time"].(float64)
+	if !ok {
+		t.Fatalf("first id_token must include numeric auth_time")
+	}
 
 	secondTokenResp, err := provider.ExchangeRefreshToken(
 		"refresh_token",
@@ -251,6 +273,13 @@ func TestRefreshTokenRotation(t *testing.T) {
 	}
 	if secondTokenResp.RefreshToken == firstTokenResp.RefreshToken {
 		t.Fatalf("refresh_token must be rotated")
+	}
+	secondClaims := parseJWTClaims(t, secondTokenResp.IDToken)
+	if _, ok := secondClaims["nonce"]; ok {
+		t.Fatalf("refresh id_token must not include nonce")
+	}
+	if secondClaims["auth_time"] != authTime {
+		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", secondClaims["auth_time"], authTime)
 	}
 
 	_, err = provider.ExchangeRefreshToken(
@@ -279,6 +308,7 @@ func TestRefreshTokenRejectInvalidScope(t *testing.T) {
 		testRedirectURI,
 		"openid offline_access",
 		"state-refresh-scope",
+		"",
 		pkceS256(testCodeVerifier),
 		"S256",
 	)
@@ -320,6 +350,25 @@ func assertOAuthError(t *testing.T, err error, code string) {
 	if oauthErr.Code != code {
 		t.Fatalf("unexpected oauth error code: %s", oauthErr.Code)
 	}
+}
+
+func parseJWTClaims(t *testing.T, rawToken string) map[string]any {
+	t.Helper()
+
+	parts := strings.Split(rawToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("invalid jwt format")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode jwt payload error: %v", err)
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("unmarshal jwt claims error: %v", err)
+	}
+	return claims
 }
 
 func queryParam(t *testing.T, rawURL, name string) string {
