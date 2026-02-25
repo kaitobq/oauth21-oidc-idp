@@ -130,6 +130,9 @@ func TestAuthorizeAndExchangeAuthorizationCodeSuccess(t *testing.T) {
 	if claims["azp"] != testClientID {
 		t.Fatalf("id_token azp mismatch: %v", claims["azp"])
 	}
+	if sid, ok := claims["sid"].(string); !ok || sid == "" {
+		t.Fatalf("id_token must include non-empty sid")
+	}
 	if _, ok := claims["auth_time"].(float64); !ok {
 		t.Fatalf("id_token must include numeric auth_time")
 	}
@@ -273,6 +276,10 @@ func TestRefreshTokenRotation(t *testing.T) {
 	if firstClaims["azp"] != testClientID {
 		t.Fatalf("first id_token azp mismatch: %v", firstClaims["azp"])
 	}
+	sid, ok := firstClaims["sid"].(string)
+	if !ok || sid == "" {
+		t.Fatalf("first id_token must include non-empty sid")
+	}
 	authTime, ok := firstClaims["auth_time"].(float64)
 	if !ok {
 		t.Fatalf("first id_token must include numeric auth_time")
@@ -311,6 +318,9 @@ func TestRefreshTokenRotation(t *testing.T) {
 	}
 	if secondClaims["azp"] != testClientID {
 		t.Fatalf("refresh id_token azp mismatch: %v", secondClaims["azp"])
+	}
+	if secondClaims["sid"] != sid {
+		t.Fatalf("refresh id_token sid mismatch: got=%v want=%v", secondClaims["sid"], sid)
 	}
 	if secondClaims["auth_time"] != authTime {
 		t.Fatalf("refresh id_token auth_time mismatch: got=%v want=%v", secondClaims["auth_time"], authTime)
