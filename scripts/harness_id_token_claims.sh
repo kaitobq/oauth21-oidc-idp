@@ -84,6 +84,16 @@ jwt_payload() {
   decode_base64url "$payload"
 }
 
+access_token_hash() {
+  local token="$1"
+  printf "%s" "$token" \
+    | openssl dgst -binary -sha256 \
+    | head -c 16 \
+    | openssl base64 -A \
+    | tr '+/' '-_' \
+    | tr -d '='
+}
+
 require_cmd curl
 require_cmd jq
 require_cmd openssl
@@ -143,8 +153,14 @@ else
   fail "authorization_code exchange status is $token_status"
 fi
 
+access_token="$(jq -r '.access_token // empty' "$token_body")"
 id_token="$(jq -r '.id_token // empty' "$token_body")"
 refresh_token="$(jq -r '.refresh_token // empty' "$token_body")"
+if [[ -n "$access_token" ]]; then
+  pass "authorization_code exchange returns access_token"
+else
+  fail "authorization_code exchange must return access_token"
+fi
 if [[ -n "$id_token" ]]; then
   pass "authorization_code exchange returns id_token"
 else
@@ -172,6 +188,12 @@ if jq -e '.auth_time | numbers' "$id_claims_file" >/dev/null 2>&1; then
 else
   fail "id_token missing numeric auth_time"
 fi
+expected_at_hash="$(access_token_hash "$access_token")"
+if jq -e --arg at_hash "$expected_at_hash" '.at_hash == $at_hash' "$id_claims_file" >/dev/null 2>&1; then
+  pass "id_token includes valid at_hash"
+else
+  fail "id_token at_hash mismatch"
+fi
 
 auth_time="$(jq -r '.auth_time // empty' "$id_claims_file")"
 
@@ -189,7 +211,13 @@ else
   fail "refresh_token exchange status is $refresh_status"
 fi
 
+refresh_access_token="$(jq -r '.access_token // empty' "$refresh_body")"
 refresh_id_token="$(jq -r '.id_token // empty' "$refresh_body")"
+if [[ -n "$refresh_access_token" ]]; then
+  pass "refresh_token exchange returns access_token"
+else
+  fail "refresh_token exchange must return access_token"
+fi
 if [[ -n "$refresh_id_token" ]]; then
   pass "refresh_token exchange returns id_token"
 else
@@ -211,6 +239,12 @@ if jq -e --arg auth_time "$auth_time" '.auth_time | tostring == $auth_time' "$re
   pass "refresh id_token preserves auth_time"
 else
   fail "refresh id_token auth_time mismatch"
+fi
+expected_refresh_at_hash="$(access_token_hash "$refresh_access_token")"
+if jq -e --arg at_hash "$expected_refresh_at_hash" '.at_hash == $at_hash' "$refresh_claims_file" >/dev/null 2>&1; then
+  pass "refresh id_token includes valid at_hash"
+else
+  fail "refresh id_token at_hash mismatch"
 fi
 
 rm -f "$auth_headers" "$auth_body" "$token_body" "$refresh_body" "$id_claims_file" "$refresh_claims_file"

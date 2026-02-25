@@ -37,6 +37,7 @@
 - 旧 refresh_token の再利用が `invalid_grant` で拒否される
 - `authorize` の `nonce` が `id_token` に反映される
 - `id_token` が `auth_time` を含む
+- `id_token` が `at_hash` を含み、返却された `access_token` と整合する
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール

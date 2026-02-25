@@ -371,7 +371,7 @@ func (p *Provider) ExchangeAuthorizationCode(grantType, code, redirectURI, clien
 	}
 
 	if hasScope(scope, "openid") {
-		idToken, err := p.signIDToken(subject, clientID, nonce, authenticatedAt)
+		idToken, err := p.signIDToken(subject, clientID, nonce, authenticatedAt, accessToken)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -457,7 +457,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 	}
 
 	if hasScope(issuedScope, "openid") {
-		idToken, err := p.signIDToken(subject, clientID, "", authenticatedAt)
+		idToken, err := p.signIDToken(subject, clientID, "", authenticatedAt, accessToken)
 		if err != nil {
 			return nil, fmt.Errorf("sign id token: %w", err)
 		}
@@ -467,7 +467,7 @@ func (p *Provider) ExchangeRefreshToken(grantType, refreshToken, clientID, scope
 	return resp, nil
 }
 
-func (p *Provider) signIDToken(subject, audience, nonce string, authenticatedAt time.Time) (string, error) {
+func (p *Provider) signIDToken(subject, audience, nonce string, authenticatedAt time.Time, accessToken string) (string, error) {
 	now := time.Now().UTC()
 	header := map[string]string{
 		"alg": "RS256",
@@ -486,6 +486,9 @@ func (p *Provider) signIDToken(subject, audience, nonce string, authenticatedAt 
 	}
 	if nonce != "" {
 		claims["nonce"] = nonce
+	}
+	if accessToken != "" {
+		claims["at_hash"] = accessTokenHash(accessToken)
 	}
 
 	headerBytes, err := json.Marshal(header)
@@ -508,6 +511,12 @@ func (p *Provider) signIDToken(subject, audience, nonce string, authenticatedAt 
 	}
 
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+// accessTokenHash computes OIDC at_hash for RS256: left-most half of SHA-256(access_token), base64url.
+func accessTokenHash(accessToken string) string {
+	sum := sha256.Sum256([]byte(accessToken))
+	return base64.RawURLEncoding.EncodeToString(sum[:len(sum)/2])
 }
 
 func randomToken(size int) (string, error) {
