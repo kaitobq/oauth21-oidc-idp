@@ -47,6 +47,7 @@ func (h *Handler) authorize(w http.ResponseWriter, r *http.Request) {
 		q.Get("redirect_uri"),
 		q.Get("scope"),
 		q.Get("state"),
+		q.Get("nonce"),
 		q.Get("code_challenge"),
 		q.Get("code_challenge_method"),
 	)
