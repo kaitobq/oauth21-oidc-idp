@@ -67,6 +67,13 @@ func TestDiscoveryEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
 	h := NewHandler(provider)
 
 	mux := http.NewServeMux()
@@ -125,6 +132,13 @@ func TestAuthorizeAndTokenFlow(t *testing.T) {
 	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
+	}
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
 	h := NewHandler(provider)
 
@@ -319,6 +333,13 @@ func TestTokenFlowWithClientSecretBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
 	}
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
+	}
 	h := NewHandler(provider)
 
 	mux := http.NewServeMux()
@@ -390,6 +411,13 @@ func TestTokenFlowWithPrivateKeyJWT(t *testing.T) {
 	provider, err := core.NewProvider(testIssuer, testClientID, testRedirectURI)
 	if err != nil {
 		t.Fatalf("NewProvider error: %v", err)
+	}
+	if err := provider.RegisterPrivateJWTClient(
+		core.DefaultPrivateJWTClientID,
+		core.DefaultPrivateJWTRedirect,
+		mustPublicKeyPEMFromPrivateKey(t, testPrivateJWTClientPrivateKeyPEM),
+	); err != nil {
+		t.Fatalf("RegisterPrivateJWTClient error: %v", err)
 	}
 	h := NewHandler(provider)
 
@@ -600,4 +628,18 @@ func parseRSAPrivateKey(t *testing.T, privateKeyPEM string) *rsa.PrivateKey {
 		t.Fatalf("parse rsa private key error: %v", err)
 	}
 	return privateKey
+}
+
+func mustPublicKeyPEMFromPrivateKey(t *testing.T, privateKeyPEM string) string {
+	t.Helper()
+
+	privateKey := parseRSAPrivateKey(t, privateKeyPEM)
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal rsa public key error: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyDER,
+	}))
 }

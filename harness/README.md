@@ -21,6 +21,10 @@ BASE_URL=http://localhost:8080 ../scripts/harness_client_secret_basic.sh
 BASE_URL=http://localhost:8080 ../scripts/harness_private_key_jwt.sh
 ```
 
+`harness_private_key_jwt.sh` は既定で `harness/keys/dev/private_jwt_client_private.pem` を使用します。
+必要に応じて `OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH` で差し替えてください。
+`harness_smoke.sh` は `EXPECT_PRIVATE_JWT`（default: `true`）で `private_key_jwt` の期待値を切り替えられます。
+
 ## Rules
 - 仕様変更時は `docs/spec/` と `scenarios/` を同時更新する。
 - 新しい不具合を修正したら、再発防止のシナリオを追加する。

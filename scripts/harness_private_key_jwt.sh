@@ -5,6 +5,8 @@ BASE_URL="${BASE_URL:-http://localhost:8080}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-5}"
 CLIENT_ID="${OIDC_PRIVATE_JWT_CLIENT_ID:-local-private-jwt-client}"
 REDIRECT_URI="${OIDC_PRIVATE_JWT_REDIRECT_URI:-http://localhost:3000/callback}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRIVATE_KEY_PATH="${OIDC_PRIVATE_JWT_CLIENT_PRIVATE_KEY_PATH:-$SCRIPT_DIR/../harness/keys/dev/private_jwt_client_private.pem}"
 SCOPE="${SCOPE:-openid profile}"
 STATE="${STATE:-harness-private-jwt-state}"
 CODE_VERIFIER="${CODE_VERIFIER:-harness-private-jwt-verifier-1234567890abcdefghijklmnopqrstuvwxyz}"
@@ -95,37 +97,11 @@ require_cmd curl
 require_cmd jq
 require_cmd openssl
 
-private_key_file="$(mktemp)"
-cat > "$private_key_file" <<'EOF'
------BEGIN PRIVATE KEY-----
-MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC0qNCu6+wFHoKW
-3vdWz8mu8ebY7tA/z9ukz4b5UOqkC178phzD5vMD7DOb/vnWN1ShxX5l7i/3LBo8
-dMD2Rnimnh8GM1dz2uUoZm8fRJSHNJgF4qTViOCefaZZs2zwnK8ZZ0LrmK4Szu4a
-cdK2NU/tl3lh3Idm55WTtaWwbQhHGwbECULZPRHwelcrPwH+FLR3Iz1S0AuVSrbh
-rOC3jhdkT4QZTHGuRbQT+qMlK9EuQSlsA2PGh0GKqSrPt5G6GIUXD5y7hs8/uMcP
-+LgcgTQKh3StSXoFMpVOZzbJtseJyOwurAD/MbyME/eH2WStpKACuZuLKNe0t4pW
-sEWA4W5PAgMBAAECggEAD0bvTrt4m/42gNeeBuNPZNHj+ZhIV/0Vz9wUx+SF0xV7
-FNZfPFm9VymUO67WJb1MFNoElE4OFFLQbShaYPkYns5kRTv2Oz/ZfQ8ceoJsJPrX
-mDfQRJZsmDp75L39imNVk0peKFoi7kg9blMNxIbBmY/jndjuQk93IKSNvFucBZco
-vDbP2Y5Fqa/OP01q7Y1gWZ9CJDDPwEQT66B2HLVhrcmui4/E6qIo1Id/zjs5TMm/
-NTbV3E2Y4jsjaAKmz5sLEFoQmW+HGoUL2K/4FmB7Ym+WfxD7fLWxFsODZjloCOq4
-HUFUHnVXTJWwe02qtYXKBmw5FruRgDNpLwN3GJUwoQKBgQD4lAlXX7/YgnXe74U2
-ASoJGQqg84N8wElMzu7nf32d+3F5B7nxBaTpN57YHOtpefD+ZgfEa3+q8L+5uQLH
-58MwpffF1PCqJR3IO3SMCBzwHolL61gs+IGous5nGm+3Fgs5TvUs6EtL+mnsHQX9
-Ut/xk7+0XAfDyhCDS97iPepRtwKBgQC6Dac6E9wMQVPU7+SPhekCz3icNoNYXgVg
-2SsXvpnVXxqh+A8zZ+iZxbV73tC7lvqG5wgjIxGyI9egzISeHIaKVJYWHYzKAnxm
-IRzB0ghaVEBDnIzx4R+EzoLQ5dcUx3/wCMJQLEQhNp5yeTsm6C/2NQoALSikgq0+
-6nP7JBhoKQKBgQDjNHwtTqlNvkD6mjdKG1pOooLihnHCjwbwm5wmIJOy2Obo1zUP
-pjcLq/kWU6ig6gJqpNuonxE8L30uxnpSOfZg+vIz8uRewDoukJmAfNHmcCLSL7SS
-tjnc/ZI3DyTZVd7AbPkQKOrZ8XLri8OzvhJO/tsUgaHfRUw+lhSM+ka4lQKBgQCT
-jsqHJEMMMS+UnSIPtivEP9mvQwjOp9rqIbKspU0KTeAofz1HDu0KMCSsdl3juW0+
-WrM4ctLRDt4wOKQhZgxKX6WdKpiDio8wzKgrDDH1ugYx2VJrb5l40fQsS21WnJba
-P4gk38a09MWbkoyYYePQB+bDlw051C4kzPtpPgphaQKBgQD1mrOH6LrSogKR8F4h
-slXGSdUuRgQ04Xx7yuINDGg9BNsk0/WCYQRHk5i4wdbX+KF5VXlFn/4y247SdM6D
-oXwN7iwKj3XeiEQ1VZ9VOyF40bEJYi8crBx+gUIVSMcprL69Eej9m8ZrIJZU7ZuV
-cweQ8NEor3To+VWCEMpkqZLHtA==
------END PRIVATE KEY-----
-EOF
+if [[ ! -f "$PRIVATE_KEY_PATH" ]]; then
+  echo "[ERROR] private key file not found: $PRIVATE_KEY_PATH" >&2
+  exit 2
+fi
+private_key_file="$PRIVATE_KEY_PATH"
 
 code_challenge="$(
   printf "%s" "$CODE_VERIFIER" \
@@ -219,7 +195,7 @@ else
   fail "token response missing id_token"
 fi
 
-rm -f "$private_key_file" "$auth_headers" "$auth_body" "$token_body" "$invalid_body"
+rm -f "$auth_headers" "$auth_body" "$token_body" "$invalid_body"
 
 if (( failures > 0 )); then
   printf "\nPrivate Key JWT harness failed: %s check(s) failed.\n" "$failures"

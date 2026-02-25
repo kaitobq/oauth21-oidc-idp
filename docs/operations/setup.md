@@ -20,6 +20,11 @@
    - `OIDC_CONFIDENTIAL_CLIENT_ID`（default: `local-confidential-client`）
    - `OIDC_CONFIDENTIAL_CLIENT_SECRET`（default: `local-confidential-secret`）
    - `OIDC_CONFIDENTIAL_REDIRECT_URI`（default: `http://localhost:3000/callback`）
+   - `OIDC_PRIVATE_JWT_ENABLED`（default: `true`）
+   - `OIDC_PRIVATE_JWT_CLIENT_ID`（default: `local-private-jwt-client`）
+   - `OIDC_PRIVATE_JWT_REDIRECT_URI`（default: `http://localhost:3000/callback`）
+   - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PATH`（default: `config/keys/dev/private_jwt_client_public.pem`）
+   - `OIDC_PRIVATE_JWT_CLIENT_PUBLIC_KEY_PEM`（任意。設定時は `*_PATH` より優先）
 5. harness 実行
    ```bash
    BASE_URL=http://localhost:8080 make harness-smoke
@@ -33,7 +38,8 @@
 ## Verification Checklist
 - discovery endpoint が 200 を返す
 - discovery に `issuer`, `jwks_uri`, `authorization_endpoint`, `token_endpoint` が含まれる
-- discovery の `token_endpoint_auth_methods_supported` に `none` / `client_secret_basic` / `private_key_jwt` が含まれる
+- discovery の `token_endpoint_auth_methods_supported` に `none` / `client_secret_basic` が含まれる
+- `OIDC_PRIVATE_JWT_ENABLED=true` のとき、`token_endpoint_auth_methods_supported` に `private_key_jwt` が含まれる
 - JWKS endpoint が `keys` 配列を返す
 - `grant_types_supported` に `password` が含まれない
 - `authorize` が 302 で `code` を返す
