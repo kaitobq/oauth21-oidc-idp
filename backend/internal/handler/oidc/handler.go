@@ -75,13 +75,30 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.provider.ExchangeAuthorizationCode(
-		r.PostForm.Get("grant_type"),
-		r.PostForm.Get("code"),
-		r.PostForm.Get("redirect_uri"),
-		r.PostForm.Get("client_id"),
-		r.PostForm.Get("code_verifier"),
+	grantType := r.PostForm.Get("grant_type")
+	var (
+		resp *core.TokenResponse
+		err  error
 	)
+	switch grantType {
+	case "authorization_code":
+		resp, err = h.provider.ExchangeAuthorizationCode(
+			grantType,
+			r.PostForm.Get("code"),
+			r.PostForm.Get("redirect_uri"),
+			r.PostForm.Get("client_id"),
+			r.PostForm.Get("code_verifier"),
+		)
+	case "refresh_token":
+		resp, err = h.provider.ExchangeRefreshToken(
+			grantType,
+			r.PostForm.Get("refresh_token"),
+			r.PostForm.Get("client_id"),
+			r.PostForm.Get("scope"),
+		)
+	default:
+		err = &core.OAuthError{Code: "unsupported_grant_type", Description: "unsupported grant_type", Status: http.StatusBadRequest}
+	}
 	if err != nil {
 		h.writeOAuthError(w, err)
 		return

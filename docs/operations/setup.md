@@ -21,6 +21,7 @@
    ```bash
    BASE_URL=http://localhost:8080 make harness-smoke
    BASE_URL=http://localhost:8080 make harness-auth-code-pkce
+   BASE_URL=http://localhost:8080 make harness-refresh-rotation
    ```
 
 ## Verification Checklist
@@ -29,8 +30,10 @@
 - JWKS endpoint が `keys` 配列を返す
 - `grant_types_supported` に `password` が含まれない
 - `authorize` が 302 で `code` を返す
-- `token` が 200 で `access_token` / `id_token` を返す
+- `token`(`authorization_code`) が 200 で `access_token` / `id_token` を返す
 - 同じ authorization code の再利用が `invalid_grant` で拒否される
+- `token`(`refresh_token`) が 200 で新しい `refresh_token` を返す
+- 旧 refresh_token の再利用が `invalid_grant` で拒否される
 
 ## Troubleshooting
 - `jq command not found`: `jq` をインストール
