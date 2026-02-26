@@ -1,0 +1,45 @@
+{
+  "name": "oauth21-oidc-idp-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Object binding for the container
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BACKEND_CONTAINER",
+        "class_name": "BackendContainer"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["BackendContainer"]
+    }
+  ],
+
+  // Container configuration
+  "containers": [
+    {
+      "class_name": "BackendContainer",
+      "image": "./Dockerfile",
+      "max_instances": 1
+    }
+  ],
+
+  // Non-secret environment variables
+  // Override per environment or set secrets via `wrangler secret put`
+  "vars": {
+    "BASE_URL": "https://oauth21-oidc-idp-backend.<ACCOUNT>.workers.dev",
+    "ISSUER": "https://oauth21-oidc-idp-backend.<ACCOUNT>.workers.dev",
+    "TIMEOUT_SECONDS": "5",
+    "ENABLE_ORGANIZATION_API": "false",
+    "OIDC_CLIENT_REGISTRY_PATH": "",
+    "OIDC_ADMIN_AUTH_MODE": "static",
+    "OIDC_ENABLE_PRIVATE_JWT_KEY_ROTATION_API": "false",
+    "OIDC_ENABLE_SIGNING_KEY_ROTATION_API": "false"
+  }
+}
