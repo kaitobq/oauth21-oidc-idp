@@ -145,10 +145,17 @@ BASE_URL=http://localhost:8080 OIDC_ENABLE_SIGNING_KEY_ROTATION_API=true OIDC_AD
 
 ### Organization API AuthZ
 
-`ENABLE_ORGANIZATION_API=true` の場合、organization API は `x-actor-sub` / `x-actor-scopes` ヘッダで認可されます。
+`ENABLE_ORGANIZATION_API=true` の場合、organization API は Bearer token で認可されます。
+- `ORGANIZATION_AUTH_MODE`（default: `static`。`static` / `jwt` / `header`）
+- `ORGANIZATION_AUTH_STATIC_TOKEN`（`ORGANIZATION_AUTH_MODE=static` 時に使用）
+- `ORGANIZATION_JWT_HS256_SECRET`（`ORGANIZATION_AUTH_MODE=jwt` 時に必須）
+- `ORGANIZATION_JWT_ISS`（任意。設定時は JWT `iss` と一致必須）
+- `ORGANIZATION_JWT_AUD`（default: `organization-api`。設定時は JWT `aud` と一致必須）
 - `organization.read`: `GetOrganization` / `ListOrganizations`
 - `organization.write`: `CreateOrganization`
 - `organization.admin`: 全操作
+
+`ORGANIZATION_AUTH_MODE=header` は移行用の互換モードです（`x-actor-sub` / `x-actor-scopes`）。
 
 `make bootstrap` は `private_key_jwt` 用の開発鍵ペアをローカルに自動生成します。
 

@@ -35,6 +35,11 @@
    - `OIDC_PRIVATE_JWT_KEY_ROTATION_TOKEN`（default: `dev-private-jwt-key-rotation-token`）
    - `OIDC_ENABLE_SIGNING_KEY_ROTATION_API`（default: `false`）
    - `OIDC_SIGNING_KEY_ROTATION_TOKEN`（default: `dev-signing-key-rotation-token`）
+   - `ORGANIZATION_AUTH_MODE`（default: `static`。`static` / `jwt` / `header`）
+   - `ORGANIZATION_AUTH_STATIC_TOKEN`（`ORGANIZATION_AUTH_MODE=static` 時に使用）
+   - `ORGANIZATION_JWT_HS256_SECRET`（`ORGANIZATION_AUTH_MODE=jwt` 時に必須）
+   - `ORGANIZATION_JWT_ISS`（任意。設定時は JWT `iss` と一致必須）
+   - `ORGANIZATION_JWT_AUD`（default: `organization-api`。設定時は JWT `aud` と一致必須）
 5. harness 実行
    ```bash
    BASE_URL=http://localhost:8080 make harness-smoke
@@ -87,7 +92,8 @@
 - ローテーション直後は旧 active `kid` が grace window 中に保持される
 - 認可/トークン/管理API操作で `kind=audit` の JSONログが標準出力に出る
 - 連続失敗時に `kind=audit_alert` の JSONログが標準出力に出る
-- `ENABLE_ORGANIZATION_API=true` のとき、organization API が `x-actor-sub` / `x-actor-scopes` で認可される
+- `ENABLE_ORGANIZATION_API=true` のとき、organization API が Bearer token（`ORGANIZATION_AUTH_MODE`）で認可される
+- `ORGANIZATION_AUTH_MODE=jwt` のとき、organization API が JWT `scope` による権限制御を行う
 
 ## PR Description Rule
 - `gh pr create` / `gh pr edit` で本文を更新するときは、必ず `--body-file` を使う

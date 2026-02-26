@@ -23,6 +23,7 @@
 - 2026-02-25: Phase 2 進行中（管理 API JWT の `jti` リプレイ防止を追加）
 - 2026-02-25: Phase 2 進行中（監査ログの連続失敗検知 `audit_alert` を追加）
 - 2026-02-25: Phase 2 進行中（organization API の scope 認可を追加）
+- 2026-02-25: Phase 2 進行中（organization API 認可を Bearer token（static/jwt）へ移行）
 
 ## Implementation Plan
 

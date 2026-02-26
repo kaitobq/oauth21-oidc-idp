@@ -125,7 +125,13 @@ func NewContainer() (*Container, error) {
 	authzGateway := authz.NewScopeGateway()
 
 	facade := app.NewFacade(commandService, queryService, authzGateway)
-	container.organizationHandler = handler.NewHandler(facade)
+	container.organizationHandler = handler.NewHandlerWithAuth(facade, handler.AuthConfig{
+		Mode:        cfg.OrganizationAuthMode,
+		StaticToken: cfg.OrganizationAuthStaticToken,
+		JWTSecret:   cfg.OrganizationJWTSecret,
+		JWTIssuer:   cfg.OrganizationJWTIssuer,
+		JWTAudience: cfg.OrganizationJWTAudience,
+	})
 	log.Printf("organization API is enabled")
 	return container, nil
 }
