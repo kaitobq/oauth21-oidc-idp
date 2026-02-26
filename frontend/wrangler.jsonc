@@ -1,0 +1,5 @@
+{
+  "name": "oauth21-oidc-idp-frontend",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"]
+}

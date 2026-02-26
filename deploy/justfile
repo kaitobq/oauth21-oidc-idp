@@ -1,0 +1,7 @@
+backend:
+    cd backend && npx wrangler deploy
+
+frontend:
+    cd ../frontend && pnpm build && npx wrangler deploy
+
+all: backend frontend
